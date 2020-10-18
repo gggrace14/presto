@@ -102,6 +102,7 @@ import static com.facebook.presto.hive.metastore.MetastoreUtil.AVRO_SCHEMA_URL_K
 import static com.facebook.presto.hive.metastore.MetastoreUtil.fromMetastoreDistinctValuesCount;
 import static com.facebook.presto.hive.metastore.PrestoTableType.EXTERNAL_TABLE;
 import static com.facebook.presto.hive.metastore.PrestoTableType.MANAGED_TABLE;
+import static com.facebook.presto.hive.metastore.PrestoTableType.MATERIALIZED_VIEW;
 import static com.facebook.presto.hive.metastore.PrestoTableType.OTHER;
 import static com.facebook.presto.hive.metastore.PrestoTableType.VIRTUAL_VIEW;
 import static com.facebook.presto.spi.security.PrincipalType.ROLE;
@@ -149,7 +150,7 @@ public final class ThriftMetastoreUtil
         result.setDbName(table.getDatabaseName());
         result.setTableName(table.getTableName());
         result.setOwner(table.getOwner());
-        checkArgument(EnumSet.of(MANAGED_TABLE, EXTERNAL_TABLE, VIRTUAL_VIEW).contains(table.getTableType()), "Invalid table type: %s", table.getTableType());
+        checkArgument(EnumSet.of(MANAGED_TABLE, EXTERNAL_TABLE, VIRTUAL_VIEW, MATERIALIZED_VIEW).contains(table.getTableType()), "Invalid table type: %s", table.getTableType());
         result.setTableType(table.getTableType().name());
         result.setParameters(table.getParameters());
         result.setPartitionKeys(table.getPartitionColumns().stream().map(ThriftMetastoreUtil::toMetastoreApiFieldSchema).collect(toList()));
