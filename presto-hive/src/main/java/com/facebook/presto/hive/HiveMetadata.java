@@ -46,6 +46,7 @@ import com.facebook.presto.hive.statistics.HiveStatisticsProvider;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
+import com.facebook.presto.spi.ConnectorMaterializedViewDefinition;
 import com.facebook.presto.spi.ConnectorMetadataUpdateHandle;
 import com.facebook.presto.spi.ConnectorNewTableLayout;
 import com.facebook.presto.spi.ConnectorOutputTableHandle;
@@ -265,6 +266,8 @@ import static com.facebook.presto.hive.PartitionUpdate.UpdateMode.NEW;
 import static com.facebook.presto.hive.PartitionUpdate.UpdateMode.OVERWRITE;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.toHivePrivilege;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.AVRO_SCHEMA_URL_KEY;
+import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_MATERIALIZED_VIEW_DATA;
+import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_MATERIALIZED_VIEW_FLAG;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_QUERY_ID_NAME;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_VIEW_FLAG;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.getHiveSchema;
@@ -289,6 +292,7 @@ import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_ANALYZE_PROPERTY;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_SCHEMA_PROPERTY;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_TABLE_PROPERTY;
+import static com.facebook.presto.spi.StandardErrorCode.INVALID_VIEW;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.StandardErrorCode.SCHEMA_NOT_EMPTY;
 import static com.facebook.presto.spi.TableLayoutFilterCoverage.COVERED;
@@ -892,6 +896,21 @@ public class HiveMetadata
     @Override
     public void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, boolean ignoreExisting)
     {
+        Table table = prepareTable(session, tableMetadata);
+        PrincipalPrivileges principalPrivileges = buildInitialPrivilegeSet(table.getOwner());
+        HiveBasicStatistics basicStatistics = table.getPartitionColumns().isEmpty() ? createZeroStatistics() : createEmptyStatistics();
+
+        metastore.createTable(
+                session,
+                table,
+                principalPrivileges,
+                Optional.empty(),
+                ignoreExisting,
+                new PartitionStatistics(basicStatistics, ImmutableMap.of()));
+    }
+
+    private Table prepareTable(ConnectorSession session, ConnectorTableMetadata tableMetadata)
+    {
         SchemaTableName schemaTableName = tableMetadata.getTable();
         String schemaName = schemaTableName.getSchemaName();
         String tableName = schemaTableName.getTableName();
@@ -945,7 +964,7 @@ public class HiveMetadata
                 hiveStorageFormat,
                 tableEncryptionProperties);
 
-        Table table = buildTableObject(
+        return buildTableObject(
                 session.getQueryId(),
                 schemaName,
                 tableName,
@@ -959,15 +978,6 @@ public class HiveMetadata
                 targetPath,
                 tableType,
                 prestoVersion);
-        PrincipalPrivileges principalPrivileges = buildInitialPrivilegeSet(table.getOwner());
-        HiveBasicStatistics basicStatistics = table.getPartitionColumns().isEmpty() ? createZeroStatistics() : createEmptyStatistics();
-        metastore.createTable(
-                session,
-                table,
-                principalPrivileges,
-                Optional.empty(),
-                ignoreExisting,
-                new PartitionStatistics(basicStatistics, ImmutableMap.of()));
     }
 
     @Override
@@ -2226,6 +2236,46 @@ public class HiveMetadata
         }
 
         return views.build();
+    }
+
+    @Override
+    public Optional<ConnectorMaterializedViewDefinition> getMaterializedView(ConnectorSession session, SchemaTableName viewName)
+    {
+        requireNonNull(viewName, "viewName is null");
+        Optional<Table> table = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
+        if (table.isPresent() && MetastoreUtil.isPrestoMaterializedView(table.get())) {
+            try {
+                JsonCodec<ConnectorMaterializedViewDefinition> codec = JsonCodec.jsonCodec(ConnectorMaterializedViewDefinition.class);
+                return Optional.of(codec.fromJson(decodeViewData(table.get().getParameters().get(PRESTO_MATERIALIZED_VIEW_DATA))));
+            }
+            catch (IllegalArgumentException e) {
+                throw new PrestoException(INVALID_VIEW, "Invalid materialized view JSON", e);
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public void createMaterializedView(ConnectorSession session, ConnectorTableMetadata viewMetadata, ConnectorMaterializedViewDefinition viewDefinition, boolean ignoreExisting)
+    {
+        Table basicTable = prepareTable(session, viewMetadata);
+        JsonCodec<ConnectorMaterializedViewDefinition> codec = JsonCodec.jsonCodec(ConnectorMaterializedViewDefinition.class);
+        Map<String, String> parameters = ImmutableMap.<String, String>builder()
+                .putAll(basicTable.getParameters())
+                .put(PRESTO_MATERIALIZED_VIEW_FLAG, "true")
+                .put(PRESTO_MATERIALIZED_VIEW_DATA, encodeViewData(codec.toJson(viewDefinition)))
+                .build();
+        Table viewTable = Table.builder(basicTable).setParameters(parameters).build();
+        PrincipalPrivileges principalPrivileges = buildInitialPrivilegeSet(viewTable.getOwner());
+        HiveBasicStatistics basicStatistics = viewTable.getPartitionColumns().isEmpty() ? createZeroStatistics() : createEmptyStatistics();
+
+        metastore.createTable(
+                session,
+                viewTable,
+                principalPrivileges,
+                Optional.empty(),
+                ignoreExisting,
+                new PartitionStatistics(basicStatistics, ImmutableMap.of()));
     }
 
     @Override
