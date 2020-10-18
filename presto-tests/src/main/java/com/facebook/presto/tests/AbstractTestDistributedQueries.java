@@ -711,6 +711,25 @@ public abstract class AbstractTestDistributedQueries
     }
 
     @Test
+    public void testMaterializedView()
+    {
+        computeActual("CREATE TABLE test_nation_base WITH (partitioned_by = ARRAY['regionkey']) AS SELECT nationkey, name, regionkey FROM nation LIMIT 1");
+
+        assertUpdate("CREATE MATERIALIZED VIEW test_nation_mv WITH (partitioned_by = ARRAY['regionkey']) AS SELECT name, regionkey FROM test_nation_base");
+        assertTrue(getQueryRunner().tableExists(getSession(), "test_nation_mv"));
+        assertTableColumnNames("test_nation_mv", "name", "regionkey");
+
+        assertQueryFails(
+                "CREATE MATERIALIZED VIEW test_nation_mv AS SELECT name FROM test_nation_base",
+                format(".* Materialized view '%s.%s.test_nation_mv' already exists", getSession().getCatalog().get(), getSession().getSchema().get()));
+        assertQuerySucceeds("CREATE MATERIALIZED VIEW IF NOT EXISTS test_nation_mv AS SELECT name FROM test_nation_base");
+
+        assertQueryFails(
+                "CREATE MATERIALIZED VIEW test_nation_mv_no_partition AS SELECT name FROM test_nation_base",
+                ".*Unpartitioned materialized view is not supported.");
+    }
+
+    @Test
     public void testView()
     {
         skipTestUnless(supportsViews());
