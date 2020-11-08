@@ -128,6 +128,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -263,6 +264,7 @@ import static com.facebook.presto.hive.PartitionUpdate.UpdateMode.NEW;
 import static com.facebook.presto.hive.PartitionUpdate.UpdateMode.OVERWRITE;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.toHivePrivilege;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.AVRO_SCHEMA_URL_KEY;
+import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_MATERIALIZED_VIEW_DATA;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_MATERIALIZED_VIEW_FLAG;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_QUERY_ID_NAME;
@@ -307,6 +309,7 @@ import static com.facebook.presto.spi.statistics.TableStatisticType.ROW_COUNT;
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Predicates.not;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -2208,23 +2211,47 @@ public class HiveMetadata
     @Override
     public void createMaterializedView(ConnectorSession session, ConnectorTableMetadata viewMetadata, ConnectorMaterializedViewDefinition viewDefinition, boolean ignoreExisting)
     {
+        checkArgument(viewDefinition.getBaseTableNames().isPresent(), "baseTableNames list is not set in %s.", viewDefinition);
+
         Table basicTable = prepareTable(session, viewMetadata);
+
         Map<String, String> parameters = ImmutableMap.<String, String>builder()
                 .putAll(basicTable.getParameters())
                 .put(PRESTO_MATERIALIZED_VIEW_FLAG, "true")
                 .put(PRESTO_MATERIALIZED_VIEW_DATA, encodeViewData(viewDefinition.getViewData()))
                 .build();
         Table viewTable = Table.builder(basicTable).setParameters(parameters).build();
+
         PrincipalPrivileges principalPrivileges = buildInitialPrivilegeSet(viewTable.getOwner());
         HiveBasicStatistics basicStatistics = viewTable.getPartitionColumns().isEmpty() ? createZeroStatistics() : createEmptyStatistics();
 
-        metastore.createTable(
-                session,
-                viewTable,
-                principalPrivileges,
-                Optional.empty(),
-                ignoreExisting,
-                new PartitionStatistics(basicStatistics, ImmutableMap.of()));
+        try {
+            metastore.createTable(
+                    session,
+                    viewTable,
+                    principalPrivileges,
+                    Optional.empty(),
+                    ignoreExisting,
+                    new PartitionStatistics(basicStatistics, ImmutableMap.of()));
+        }
+        catch (TableAlreadyExistsException e) {
+            throw new MaterializedViewAlreadyExistsException(e.getTableName());
+        }
+
+        checkState(viewDefinition.getBaseTableNames().isPresent(), "Base table list is not set.");
+        viewDefinition.getBaseTableNames().get().forEach(baseTableName -> {
+            Table baseTable = metastore.getTable(baseTableName.getSchemaName(), baseTableName.getTableName())
+                    .orElseThrow(() -> new TableNotFoundException(baseTableName));
+
+            Set<String> viewNames = new LinkedHashSet<>();
+            if (baseTable.getParameters().containsKey(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST)) {
+                viewNames.addAll(Splitter.on(",").splitToList(baseTable.getParameters().get(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST)));
+            }
+            viewNames.add(viewMetadata.getTable().toString());
+
+            Map<String, String> parameterToUpdate = ImmutableMap.of(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST, Joiner.on(",").join(viewNames));
+            metastore.updateTableParameters(session, baseTableName.getSchemaName(), baseTableName.getTableName(), parameterToUpdate);
+        });
     }
 
     @Override
