@@ -1054,7 +1054,26 @@ public class MetadataManager
 
             Optional<ConnectorMaterializedViewDefinition> view = metadata.getMaterializedView(session.toConnectorSession(connectorId), toSchemaTableName(viewName));
             if (view.isPresent()) {
-                return Optional.of(deserializeMaterializedView(view.get().getViewData()));
+                MaterializedViewDefinition viewDefinition = deserializeMaterializedView(view.get().getViewData());
+                Optional<List<Map<String, String>>> partitionSpecs = metadata.getPartitionSpecs(session.toConnectorSession(connectorId), toSchemaTableName(viewName));
+                if (!partitionSpecs.isPresent()) {
+                    return Optional.of(viewDefinition);
+                }
+                viewDefinition.setViewPartitions(MaterializedViewDefinition.PartitionSpecs.of(partitionSpecs.get()));
+
+                for (MaterializedViewDefinition.ViewBaseTable baseTable : viewDefinition.getBaseTables()) {
+                    SchemaTableName baseTableName = baseTable.getName();
+                    ConnectorId baseConnectorId = catalogMetadata.getConnectorId(
+                            session,
+                            QualifiedObjectName.valueOf(viewName.getCatalogName(), baseTableName.getSchemaName(), baseTableName.getTableName()));
+                    ConnectorMetadata baseMetadata = catalogMetadata.getMetadataFor(baseConnectorId);
+                    Optional<List<Map<String, String>>> basePartitionSpecs = baseMetadata.getPartitionSpecs(session.toConnectorSession(baseConnectorId), baseTableName);
+                    if (!basePartitionSpecs.isPresent()) {
+                        return Optional.of(viewDefinition);
+                    }
+                    viewDefinition.addBaseTablePartitions(baseTable, MaterializedViewDefinition.PartitionSpecs.of(basePartitionSpecs.get()));
+                }
+                return Optional.of(viewDefinition);
             }
         }
         return Optional.empty();

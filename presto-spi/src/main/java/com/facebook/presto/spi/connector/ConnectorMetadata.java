@@ -578,6 +578,14 @@ public interface ConnectorMetadata
     }
 
     /**
+     * Gets the partition names of the specified table.
+     */
+    default Optional<List<Map<String, String>>> getPartitionSpecs(ConnectorSession session, SchemaTableName tableName)
+    {
+        return Optional.empty();
+    }
+
+    /**
      * @return whether delete without table scan is supported
      */
     default boolean supportsMetadataDelete(ConnectorSession session, ConnectorTableHandle tableHandle, Optional<ConnectorTableLayoutHandle> tableLayoutHandle)

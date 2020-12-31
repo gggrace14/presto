@@ -167,6 +167,7 @@ import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static com.facebook.presto.metadata.MetadataUtil.createQualifiedObjectName;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_FOUND;
+import static com.facebook.presto.spi.StandardErrorCode.STALE_MATERIALIZED_VIEW;
 import static com.facebook.presto.spi.StandardWarningCode.PERFORMANCE_WARNING;
 import static com.facebook.presto.spi.StandardWarningCode.REDUNDANT_ORDER_BY;
 import static com.facebook.presto.spi.function.FunctionKind.AGGREGATE;
@@ -1016,6 +1017,10 @@ class StatementAnalyzer
                 }
 
                 MaterializedViewDefinition viewDefinition = optionalMaterializedView.get();
+                if (!viewDefinition.isFresh()) {
+                    throw new PrestoException(STALE_MATERIALIZED_VIEW, "Materialized view is stale. Wait for auto refresh and try again.");
+                }
+
                 Query query = parseView(viewDefinition.getOriginalSql(), name, table);
 
                 analysis.registerNamedQuery(table, query);

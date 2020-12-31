@@ -2228,6 +2228,17 @@ public class HiveMetadata
     }
 
     @Override
+    public Optional<List<Map<String, String>>> getPartitionSpecs(ConnectorSession session, SchemaTableName tableName)
+    {
+        List<Map<String, String>> partitionSpecs = metastore.getPartitionNames(tableName.getSchemaName(), tableName.getTableName())
+                .orElseThrow(() -> new TableNotFoundException(tableName))
+                .stream()
+                .map(MetastoreUtil::toPartitionSpec)
+                .collect(toImmutableList());
+        return Optional.of(partitionSpecs);
+    }
+
+    @Override
     public ConnectorTableHandle beginDelete(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector only supports delete where one or more partitions are deleted entirely");

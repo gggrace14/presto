@@ -16,13 +16,26 @@ package com.facebook.presto.metadata;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreType;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 public final class MaterializedViewDefinition
@@ -33,6 +46,10 @@ public final class MaterializedViewDefinition
     private final List<ViewColumn> columns;
     private final List<ViewBaseTable> baseTables;
     private final Optional<String> owner;
+    @JsonIgnore
+    private Optional<PartitionSpecs> partitionsFromView = Optional.empty();
+    @JsonIgnore
+    private Optional<Map<ViewBaseTable, PartitionSpecs>> partitionsFromBaseTables = Optional.empty();
 
     @JsonCreator
     public MaterializedViewDefinition(
@@ -101,6 +118,33 @@ public final class MaterializedViewDefinition
                 .toString();
     }
 
+    public MaterializedViewDefinition setViewPartitions(PartitionSpecs partitionSpecs)
+    {
+        this.partitionsFromView = Optional.of(requireNonNull(partitionSpecs, "partitionSpecs is null"));
+        return this;
+    }
+
+    public MaterializedViewDefinition addBaseTablePartitions(ViewBaseTable baseTable, PartitionSpecs baseTablePartitionSpecs)
+    {
+        requireNonNull(baseTable, "baseTable is null.");
+        requireNonNull(baseTablePartitionSpecs, "baseTablePartitionSpecs is null");
+
+        if (!this.partitionsFromView.isPresent()) {
+            return this;
+        }
+
+        if (!this.partitionsFromBaseTables.isPresent()) {
+            this.partitionsFromBaseTables = Optional.of(new HashMap<ViewBaseTable, PartitionSpecs>());
+        }
+        this.partitionsFromBaseTables.get().put(baseTable, PartitionSpecs.difference(baseTablePartitionSpecs, this.partitionsFromView.get()));
+        return this;
+    }
+
+    public boolean isFresh()
+    {
+        return Iterables.all(this.partitionsFromBaseTables.orElse(Collections.emptyMap()).values(), PartitionSpecs::isEmpty);
+    }
+
     public static final class ViewBaseTable
     {
         private final SchemaTableName name;
@@ -155,6 +199,66 @@ public final class MaterializedViewDefinition
         public String toString()
         {
             return name + ":" + type;
+        }
+    }
+
+    @JsonIgnoreType
+    public static final class PartitionSpecs
+    {
+        private final List<Map<String, String>> partitions;
+
+        public PartitionSpecs(List<Map<String, String>> partitionSpecs)
+        {
+            this.partitions = ImmutableList.copyOf(requireNonNull(partitionSpecs, "partitionSpecs is null"));
+        }
+
+        public static PartitionSpecs of(List<Map<String, String>> partitionSpecs)
+        {
+            return new PartitionSpecs(partitionSpecs);
+        }
+
+        public static PartitionSpecs empty()
+        {
+            return new PartitionSpecs(Collections.emptyList());
+        }
+
+        public static PartitionSpecs difference(PartitionSpecs left, PartitionSpecs right)
+        {
+            if (left.partitions.isEmpty() || right.partitions.isEmpty()) {
+                return empty();
+            }
+            Map<String, String> leftFirst = left.partitions.iterator().next();
+            Map<String, String> rightFirst = right.partitions.iterator().next();
+            Sets.SetView commonKeys = Sets.intersection(leftFirst.keySet(), rightFirst.keySet());
+            if (commonKeys.isEmpty()) {
+                return empty();
+            }
+            Function<Map<String, String>, Map<String, String>> toSpecOnCommonKeys = partSpec -> Maps.filterKeys(partSpec, key -> commonKeys.contains(key));
+
+            Set<Map<String, String>> rightOnCommonKeys = right.partitions
+                    .stream()
+                    .map(toSpecOnCommonKeys)
+                    .collect(toImmutableSet());
+
+            List<Map<String, String>> diff = new ArrayList<>();
+            Iterator<Map<String, String>> leftIter = left.partitions.iterator();
+            while (leftIter.hasNext()) {
+                if (toSpecOnCommonKeys.apply(leftIter.next()).equals(toSpecOnCommonKeys.apply(rightFirst))) {
+                    break;
+                }
+            }
+            while (leftIter.hasNext()) {
+                Map<String, String> leftSpec = leftIter.next();
+                if (!rightOnCommonKeys.contains(toSpecOnCommonKeys.apply(leftSpec))) {
+                    diff.add(leftSpec);
+                }
+            }
+            return PartitionSpecs.of(diff);
+        }
+
+        public boolean isEmpty()
+        {
+            return partitions.isEmpty();
         }
     }
 }
