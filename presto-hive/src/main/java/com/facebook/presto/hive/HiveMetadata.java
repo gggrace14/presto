@@ -61,6 +61,7 @@ import com.facebook.presto.spi.ConnectorViewDefinition;
 import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.DiscretePredicates;
 import com.facebook.presto.spi.InMemoryRecordSet;
+import com.facebook.presto.spi.MaterializedViewNotFoundException;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.RecordCursor;
@@ -312,6 +313,7 @@ import static com.facebook.presto.spi.statistics.TableStatisticType.ROW_COUNT;
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Predicates.not;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -2305,6 +2307,50 @@ public class HiveMetadata
 
             Map<String, String> parameterToUpdate = ImmutableMap.of(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST, Joiner.on(",").join(viewNames));
             metastore.updateTableParameters(session, baseTable.getDatabaseName(), baseTable.getTableName(), parameterToUpdate, ImmutableSet.of());
+        });
+    }
+
+    @Override
+    public void dropMaterializedView(ConnectorSession session, SchemaTableName viewName)
+    {
+        Optional<ConnectorMaterializedViewDefinition> view = getMaterializedView(session, viewName);
+        if (!view.isPresent()) {
+            throw new MaterializedViewNotFoundException(viewName);
+        }
+
+        try {
+            metastore.dropTable(session, viewName.getSchemaName(), viewName.getTableName());
+        }
+        catch (TableNotFoundException e) {
+            throw new MaterializedViewNotFoundException(e.getTableName());
+        }
+
+        view.get().getBaseTables().forEach(viewBaseTable -> {
+            Table baseTable = metastore.getTable(viewBaseTable.getName().getSchemaName(), viewBaseTable.getName().getTableName())
+                    .orElseThrow(() -> new TableNotFoundException(viewBaseTable.getName()));
+
+            Set<String> viewNames = new LinkedHashSet<>();
+            if (baseTable.getParameters().containsKey(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST)) {
+                viewNames.addAll(Splitter.on(",").splitToList(baseTable.getParameters().get(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST)));
+            }
+
+            checkState(
+                    viewNames.contains(viewName.toString()),
+                    "Link of base table %s to materialized view %s is missing.",
+                    viewBaseTable.getName().toString(), viewName.toString());
+            viewNames.remove(viewName.toString());
+
+            Map<String, String> parameterToUpdate;
+            Set<String> parameterToDrop;
+            if (viewNames.size() == 0) {
+                parameterToUpdate = ImmutableMap.of();
+                parameterToDrop = ImmutableSet.of(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST);
+            }
+            else {
+                parameterToUpdate = ImmutableMap.of(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST, Joiner.on(",").join(viewNames));
+                parameterToDrop = ImmutableSet.of();
+            }
+            metastore.updateTableParameters(session, viewBaseTable.getName().getSchemaName(), viewBaseTable.getName().getTableName(), parameterToUpdate, parameterToDrop);
         });
     }
 
