@@ -727,6 +727,9 @@ public abstract class AbstractTestDistributedQueries
         assertQueryFails(
                 "CREATE MATERIALIZED VIEW test_nation_mv_no_partition AS SELECT name FROM test_nation_base",
                 ".*Unpartitioned materialized view is not supported.");
+
+        assertUpdate("DROP MATERIALIZED VIEW test_nation_mv");
+        assertFalse(getQueryRunner().tableExists(getSession(), "test_nation_mv"));
     }
 
     @Test
