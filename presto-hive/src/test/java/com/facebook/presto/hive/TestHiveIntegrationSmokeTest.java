@@ -5391,6 +5391,23 @@ public class TestHiveIntegrationSmokeTest
                 format(".*'%s.%s.test_customer_mv_2' is a materialized view, and rename column is not supported", getSession().getCatalog().get(), getSession().getSchema().get()));
     }
 
+    @Test
+    public void testDropMaterializedView()
+    {
+        computeActual("CREATE TABLE test_customer_base_3 WITH (partitioned_by = ARRAY['nationkey']) AS SELECT custkey, name, address, nationkey FROM customer LIMIT 10");
+        computeActual("CREATE MATERIALIZED VIEW test_customer_mv_3 WITH (partitioned_by = ARRAY['nationkey']) AS SELECT name, nationkey FROM test_customer_base_3");
+
+        assertQueryFails(
+                "DROP TABLE test_customer_mv_3",
+                format(".*Table '%s.%s.test_customer_mv_3' does not exist", getSession().getCatalog().get(), getSession().getSchema().get()));
+        assertQueryFails(
+                "DROP VIEW test_customer_mv_3",
+                format(".*View '%s.%s.test_customer_mv_3' does not exist", getSession().getCatalog().get(), getSession().getSchema().get()));
+
+        assertUpdate("DROP MATERIALIZED VIEW test_customer_mv_3");
+        assertFalse(getQueryRunner().tableExists(getSession(), "test_customer_mv_3"));
+    }
+
     private Session getParallelWriteSession()
     {
         return Session.builder(getSession())
