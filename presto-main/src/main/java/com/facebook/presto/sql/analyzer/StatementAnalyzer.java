@@ -191,6 +191,7 @@ import static com.facebook.presto.spi.StandardWarningCode.PERFORMANCE_WARNING;
 import static com.facebook.presto.spi.StandardWarningCode.REDUNDANT_ORDER_BY;
 import static com.facebook.presto.spi.function.FunctionKind.AGGREGATE;
 import static com.facebook.presto.spi.function.FunctionKind.WINDOW;
+import static com.facebook.presto.sql.MaterializedViewUtils.validateMaterializedViewQuery;
 import static com.facebook.presto.sql.NodeUtils.getSortItemsFromOrderBy;
 import static com.facebook.presto.sql.NodeUtils.mapFromProperties;
 import static com.facebook.presto.sql.ParsingUtil.createParsingOptions;
@@ -206,7 +207,6 @@ import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionT
 import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.extractAggregateFunctions;
 import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.extractExpressions;
 import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.extractWindowFunctions;
-import static com.facebook.presto.sql.analyzer.MaterializedViewPlanValidator.MaterializedViewPlanValidatorContext;
 import static com.facebook.presto.sql.analyzer.PredicateStitcher.PredicateStitcherContext;
 import static com.facebook.presto.sql.analyzer.RefreshMaterializedViewPredicateAnalyzer.extractTablePredicates;
 import static com.facebook.presto.sql.analyzer.ScopeReferenceExtractor.hasReferencesToScope;
@@ -683,7 +683,6 @@ class StatementAnalyzer
                 }
                 throw new SemanticException(MATERIALIZED_VIEW_ALREADY_EXISTS, node, "Destination materialized view '%s' already exists", viewName);
             }
-            validateMaterialziedViewQueryPlan(node.getQuery());
             validateProperties(node.getProperties(), scope);
 
             analysis.setCreateTableProperties(mapFromProperties(node.getProperties()));
@@ -700,12 +699,6 @@ class StatementAnalyzer
             validateBaseTables(analysis.getTableNodes(), node);
 
             return createAndAssignScope(node, scope);
-        }
-
-        private void validateMaterialziedViewQueryPlan(Statement query)
-        {
-            MaterializedViewPlanValidator validator = new MaterializedViewPlanValidator(query);
-            validator.process(query, new MaterializedViewPlanValidatorContext());
         }
 
         @Override
@@ -1326,7 +1319,7 @@ class StatementAnalyzer
                 ConnectorMaterializedViewDefinition materializedViewDefinition,
                 MaterializedViewStatus materializedViewStatus)
         {
-            validateMaterialziedViewQueryPlan(sqlParser.createStatement(materializedViewDefinition.getOriginalSql(), createParsingOptions(session, warningCollector)));
+            validateMaterializedViewQuery((Query) sqlParser.createStatement(materializedViewDefinition.getOriginalSql(), createParsingOptions(session, warningCollector)));
 
             String newSql = getMaterializedViewSQL(materializedView, materializedViewDefinition, materializedViewStatus);
 
