@@ -2383,6 +2383,26 @@ public class HiveMetadata
     }
 
     @Override
+    public List<String> getValidRefreshMaterializedViewFilterColumns(ConnectorSession session, SchemaTableName viewName)
+    {
+        requireNonNull(viewName, "viewName is null");
+
+        Optional<Table> viewTable = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
+
+        if (!viewTable.isPresent() || !MetastoreUtil.isPrestoMaterializedView(viewTable.get())) {
+            throw new MaterializedViewNotFoundException(viewName);
+        }
+
+        List<String> partitionedBy = viewTable.get().getPartitionColumns().stream()
+                .map(Column::getName)
+                .collect(toImmutableList());
+
+        checkState(!partitionedBy.isEmpty(), "Materialized view %s is not partitioned", viewName.toString());
+
+        return partitionedBy;
+    }
+
+    @Override
     public ConnectorTableHandle beginDelete(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector only supports delete where one or more partitions are deleted entirely");

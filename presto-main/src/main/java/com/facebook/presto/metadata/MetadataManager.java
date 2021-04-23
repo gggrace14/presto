@@ -1087,6 +1087,18 @@ public class MetadataManager
     }
 
     @Override
+    public List<String> getValidRefreshMaterializedViewFilterColumns(Session session, QualifiedObjectName viewName)
+    {
+        CatalogMetadata catalogMetadata = getOptionalCatalogMetadata(session, viewName.getCatalogName())
+                .orElseThrow(() -> new PrestoException(NOT_FOUND, format("Catalog '%s' does not exist", viewName.getCatalogName())));
+        ConnectorId connectorId = catalogMetadata.getConnectorId(session, viewName);
+        ConnectorMetadata metadata = catalogMetadata.getMetadataFor(connectorId);
+
+        return metadata.getValidRefreshMaterializedViewFilterColumns(session.toConnectorSession(connectorId), toSchemaTableName(viewName));
+
+    }
+
+    @Override
     public Optional<ResolvedIndex> resolveIndex(Session session, TableHandle tableHandle, Set<ColumnHandle> indexableColumns, Set<ColumnHandle> outputColumns, TupleDomain<ColumnHandle> tupleDomain)
     {
         ConnectorId connectorId = tableHandle.getConnectorId();
