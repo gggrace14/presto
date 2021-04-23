@@ -2359,18 +2359,19 @@ public class HiveMetadata
         }
 
         Table basicTable = prepareTable(session, viewMetadata, MATERIALIZED_VIEW);
+        ConnectorMaterializedViewDefinition viewDefinitionWithRefreshColumns = viewDefinition.withValidRefreshColumns(getPartitionedBy(viewMetadata.getProperties()));
         Map<String, String> parameters = ImmutableMap.<String, String>builder()
                 .putAll(basicTable.getParameters())
                 .put(PRESTO_MATERIALIZED_VIEW_FLAG, "true")
                 .build();
         Table viewTable = Table.builder(basicTable)
                 .setParameters(parameters)
-                .setViewOriginalText(Optional.of(encodeMaterializedViewData(MATERIALIZED_VIEW_JSON_CODEC.toJson(viewDefinition))))
+                .setViewOriginalText(Optional.of(encodeMaterializedViewData(MATERIALIZED_VIEW_JSON_CODEC.toJson(viewDefinitionWithRefreshColumns))))
                 .setViewExpandedText(Optional.of("/* Presto Materialized View */"))
                 .build();
 
         MetastoreContext metastoreContext = new MetastoreContext(session.getIdentity(), session.getQueryId(), session.getClientInfo(), session.getSource());
-        validateMaterializedViewPartitionColumns(metastore, metastoreContext, viewTable, viewDefinition);
+        validateMaterializedViewPartitionColumns(metastore, metastoreContext, viewTable, viewDefinitionWithRefreshColumns);
 
         try {
             PrincipalPrivileges principalPrivileges = buildInitialPrivilegeSet(viewTable.getOwner());
