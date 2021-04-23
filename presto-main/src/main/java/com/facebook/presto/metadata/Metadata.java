@@ -375,6 +375,11 @@ public interface Metadata
     void dropMaterializedView(Session session, QualifiedObjectName viewName);
 
     /**
+     * Finish refresh materialized view
+     */
+    Optional<ConnectorOutputMetadata> finishRefreshMaterializedView(Session session, InsertTableHandle tableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics);
+
+    /**
      * Returns the valid filter columns for refresh materialized view.
      */
     List<String> getValidRefreshMaterializedViewFilterColumns(Session session, QualifiedObjectName viewName);

@@ -50,6 +50,7 @@ import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestIntegrationSmokeTest;
 import com.facebook.presto.tests.DistributedQueryRunner;
+import com.facebook.presto.tests.QueryAssertions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -134,6 +135,7 @@ import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
 import static io.airlift.tpch.TpchTable.CUSTOMER;
 import static io.airlift.tpch.TpchTable.LINE_ITEM;
+import static io.airlift.tpch.TpchTable.NATION;
 import static io.airlift.tpch.TpchTable.ORDERS;
 import static io.airlift.tpch.TpchTable.PART_SUPPLIER;
 import static java.lang.String.format;
@@ -161,7 +163,7 @@ public class TestHiveIntegrationSmokeTest
     @SuppressWarnings("unused")
     public TestHiveIntegrationSmokeTest()
     {
-        this(() -> createQueryRunner(ORDERS, CUSTOMER, LINE_ITEM, PART_SUPPLIER),
+        this(() -> createQueryRunner(ORDERS, CUSTOMER, LINE_ITEM, PART_SUPPLIER, NATION),
                 createBucketedSession(Optional.of(new SelectedRole(ROLE, Optional.of("admin")))),
                 createMaterializeExchangesSession(Optional.of(new SelectedRole(ROLE, Optional.of("admin")))),
                 HIVE_CATALOG,
@@ -5441,6 +5443,71 @@ public class TestHiveIntegrationSmokeTest
 
         // Clean up
         computeActual("DROP TABLE IF EXISTS test_customer_base_4");
+    }
+
+    @Test
+    public void testRefreshMaterializedView()
+    {
+        Session session = getSession();
+        QueryRunner queryRunner = getQueryRunner();
+
+        computeActual("CREATE TABLE test_nation_base_5 WITH (partitioned_by = ARRAY['nationkey', 'regionkey']) AS SELECT name, nationkey, regionkey FROM nation");
+        computeActual("CREATE TABLE test_customer_base_5 WITH (partitioned_by = ARRAY['nationkey']) AS SELECT custkey, name, mktsegment, nationkey FROM customer");
+        computeActual(
+                "CREATE MATERIALIZED VIEW test_customer_mv_5 WITH (partitioned_by = ARRAY['marketsegment', 'nationkey', 'regionkey']" + retentionDays(30) + ") " +
+                        "AS SELECT test_nation_base_5.name AS nationname, customer.custkey, customer.name AS customername, UPPER(customer.mktsegment) AS marketsegment, customer.nationkey, regionkey " +
+                        "FROM test_nation_base_5 JOIN test_customer_base_5 customer ON (test_nation_base_5.nationkey = customer.nationkey)");
+
+        // Test predicate columns from two base tables
+        computeActual("REFRESH MATERIALIZED VIEW test_customer_mv_5 WHERE marketsegment = 'AUTOMOBILE' AND nationkey = 24 AND regionkey = 1");
+        QueryAssertions.assertQuery(
+                queryRunner,
+                session,
+                "SELECT * FROM test_customer_mv_5",
+                queryRunner,
+                "SELECT *" +
+                        "FROM (" +
+                        "  SELECT test_nation_base_5.name AS nationname, customer.custkey, customer.name AS customername, UPPER(customer.mktsegment) AS marketsegment, customer.nationkey, regionkey " +
+                        "  FROM (" +
+                        "    SELECT * FROM test_nation_base_5 WHERE regionkey = 1" +
+                        "  ) test_nation_base_5 JOIN (" +
+                        "    SELECT * FROM test_customer_base_5 WHERE nationkey = 24" +
+                        "  ) customer ON (test_nation_base_5.nationkey = customer.nationkey)" +
+                        ") WHERE marketsegment = 'AUTOMOBILE'",
+                false, false);
+
+        // Test predicate columns from one base table
+        computeActual("REFRESH MATERIALIZED VIEW test_customer_mv_5 WHERE marketsegment = 'AUTOMOBILE' AND nationkey = 24");
+        QueryAssertions.assertQuery(
+                queryRunner,
+                session,
+                "SELECT * FROM test_customer_mv_5",
+                queryRunner,
+                "SELECT *" +
+                        "FROM (" +
+                        "  SELECT test_nation_base_5.name AS nationname, customer.custkey, customer.name AS customername, UPPER(customer.mktsegment) AS marketsegment, customer.nationkey, regionkey " +
+                        "  FROM test_nation_base_5 JOIN (" +
+                        "    SELECT * FROM test_customer_base_5 WHERE nationkey = 24" +
+                        "  ) customer ON (test_nation_base_5.nationkey = customer.nationkey)" +
+                        ") WHERE marketsegment = 'AUTOMOBILE'",
+                false, false);
+
+        computeActual("REFRESH MATERIALIZED VIEW test_customer_mv_5 WHERE regionkey = 1");
+        QueryAssertions.assertQuery(
+                queryRunner,
+                session,
+                "SELECT * FROM test_customer_mv_5",
+                queryRunner,
+                "SELECT test_nation_base_5.name AS nationname, customer.custkey, customer.name AS customername, UPPER(customer.mktsegment) AS marketsegment, customer.nationkey, regionkey " +
+                        "FROM (" +
+                        "  SELECT * FROM test_nation_base_5 WHERE regionkey = 1" +
+                        ") test_nation_base_5 JOIN test_customer_base_5 customer ON (test_nation_base_5.nationkey = customer.nationkey)",
+                false, false);
+
+        // Test invalid predicates
+        assertQueryFails("REFRESH MATERIALIZED VIEW test_customer_mv_5 WHERE regionkey = 1 OR nationkey = 24", ".*Only logical AND is supported in WHERE clause.*");
+        assertQueryFails("REFRESH MATERIALIZED VIEW test_customer_mv_5 WHERE nationname = 'UNITED STATES'", ".*Refresh materialized view by column nationname is not supported.*");
+        assertQueryFails("REFRESH MATERIALIZED VIEW test_customer_mv_5 WHERE regionkey + nationkey = 25", ".*Only columns specified on literals are supported in WHERE clause.*");
     }
 
     protected String retentionDays(int days)

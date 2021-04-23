@@ -438,6 +438,12 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
+    public Optional<ConnectorOutputMetadata> finishRefreshMaterializedView(Session session, InsertTableHandle tableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public List<String> getValidRefreshMaterializedViewFilterColumns(Session session, QualifiedObjectName viewName)
     {
         throw new UnsupportedOperationException();

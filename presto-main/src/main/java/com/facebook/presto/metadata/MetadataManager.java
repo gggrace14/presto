@@ -1076,6 +1076,14 @@ public class MetadataManager
     }
 
     @Override
+    public Optional<ConnectorOutputMetadata> finishRefreshMaterializedView(Session session, InsertTableHandle tableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
+    {
+        ConnectorId connectorId = tableHandle.getConnectorId();
+        ConnectorMetadata metadata = getMetadata(session, connectorId);
+        return metadata.finishRefreshMaterializedView(session.toConnectorSession(connectorId), tableHandle.getConnectorHandle(), fragments, computedStatistics);
+    }
+
+    @Override
     public List<String> getValidRefreshMaterializedViewFilterColumns(Session session, QualifiedObjectName viewName)
     {
         CatalogMetadata catalogMetadata = getOptionalCatalogMetadata(session, viewName.getCatalogName())
