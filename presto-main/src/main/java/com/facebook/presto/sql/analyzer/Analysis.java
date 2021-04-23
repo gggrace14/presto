@@ -139,6 +139,7 @@ public class Analysis
     private Optional<String> createTableComment = Optional.empty();
 
     private Optional<Insert> insert = Optional.empty();
+    private Optional<RefreshMaterializedView> refreshMaterializedView = Optional.empty();
     private Optional<TableHandle> analyzeTarget = Optional.empty();
 
     // for describe input and describe output
@@ -146,6 +147,9 @@ public class Analysis
 
     // for recursive view detection
     private final Deque<Table> tablesForView = new ArrayDeque<>();
+
+    // To prevent recursive analyzing of one materialized view base table
+    private final ListMultimap<NodeRef<Table>, Table> baseTablesForMaterializedView = ArrayListMultimap.create();
 
     public Analysis(@Nullable Statement root, List<Expression> parameters, boolean isDescribe)
     {
@@ -602,6 +606,16 @@ public class Analysis
         return insert;
     }
 
+    public void setRefreshMaterializedView(RefreshMaterializedView refreshMaterializedView)
+    {
+        this.refreshMaterializedView = Optional.of(refreshMaterializedView);
+    }
+
+    public Optional<RefreshMaterializedView> getRefreshMaterializedView()
+    {
+        return refreshMaterializedView;
+    }
+
     public Query getNamedQuery(Table table)
     {
         return namedQueries.get(NodeRef.of(table));
@@ -628,6 +642,30 @@ public class Analysis
     public boolean hasTableInView(Table tableReference)
     {
         return tablesForView.contains(tableReference);
+    }
+
+    public void registerBaseTableForMaterializedView(Table view, Table baseTable)
+    {
+        requireNonNull(view, "view is null");
+        requireNonNull(baseTable, "baseTable is null");
+
+        baseTablesForMaterializedView.put(NodeRef.of(view), baseTable);
+    }
+
+    public void unregisterBaseTableForMaterializedView(Table view, Table baseTable)
+    {
+        requireNonNull(view, "view is null");
+        requireNonNull(baseTable, "baseTable is null");
+
+        baseTablesForMaterializedView.remove(NodeRef.of(view), baseTable);
+    }
+
+    public boolean hasBaseTableRegisteredForMaterializedView(Table view, Table baseTable)
+    {
+        requireNonNull(view, "view is null");
+        requireNonNull(baseTable, "baseTable is null");
+
+        return baseTablesForMaterializedView.containsEntry(NodeRef.of(view), baseTable);
     }
 
     public void setSampleRatio(SampledRelation relation, double ratio)
@@ -747,6 +785,37 @@ public class Analysis
         public TableHandle getTarget()
         {
             return target;
+        }
+    }
+
+    @Immutable
+    public static final class RefreshMaterializedView
+    {
+        private final TableHandle target;
+        private final List<ColumnHandle> columns;
+        private final Query query;
+
+        public RefreshMaterializedView(TableHandle target, List<ColumnHandle> columns, Query query)
+        {
+            this.target = requireNonNull(target, "target is null");
+            this.columns = requireNonNull(columns, "columns is null");
+            this.query = requireNonNull(query, "query is null");
+            checkArgument(columns.size() > 0, "No columns given to insert");
+        }
+
+        public List<ColumnHandle> getColumns()
+        {
+            return columns;
+        }
+
+        public TableHandle getTarget()
+        {
+            return target;
+        }
+
+        public Query getQuery()
+        {
+            return query;
         }
     }
 

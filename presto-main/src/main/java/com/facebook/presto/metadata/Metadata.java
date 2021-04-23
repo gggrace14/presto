@@ -375,6 +375,11 @@ public interface Metadata
     void dropMaterializedView(Session session, QualifiedObjectName viewName);
 
     /**
+     * Returns the valid filter columns for refresh materialized view.
+     */
+    List<String> getValidRefreshMaterializedViewFilterColumns(Session session, QualifiedObjectName viewName);
+
+    /**
      * Try to locate a table index that can lookup results by indexableColumns and provide the requested outputColumns.
      */
     Optional<ResolvedIndex> resolveIndex(Session session, TableHandle tableHandle, Set<ColumnHandle> indexableColumns, Set<ColumnHandle> outputColumns, TupleDomain<ColumnHandle> tupleDomain);

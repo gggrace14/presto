@@ -438,6 +438,12 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
+    public List<String> getValidRefreshMaterializedViewFilterColumns(Session session, QualifiedObjectName viewName)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void createRole(Session session, String role, Optional<PrestoPrincipal> grantor, String catalog)
     {
         throw new UnsupportedOperationException();

@@ -315,6 +315,7 @@ import static com.facebook.presto.spi.statistics.TableStatisticType.ROW_COUNT;
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Predicates.not;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -2322,6 +2323,26 @@ public class HiveMetadata
         catch (TableNotFoundException e) {
             throw new MaterializedViewNotFoundException(e.getTableName());
         }
+    }
+
+    @Override
+    public List<String> getValidRefreshMaterializedViewFilterColumns(ConnectorSession session, SchemaTableName viewName)
+    {
+        requireNonNull(viewName, "viewName is null");
+
+        Optional<Table> viewTable = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
+
+        if (!viewTable.isPresent() || !MetastoreUtil.isPrestoMaterializedView(viewTable.get())) {
+            throw new MaterializedViewNotFoundException(viewName);
+        }
+
+        List<String> partitionedBy = viewTable.get().getPartitionColumns().stream()
+                .map(Column::getName)
+                .collect(toImmutableList());
+
+        checkState(!partitionedBy.isEmpty(), "Materialized view %s is not partitioned", viewName.toString());
+
+        return partitionedBy;
     }
 
     @Override

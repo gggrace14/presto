@@ -501,6 +501,14 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
+    public List<String> getValidRefreshMaterializedViewFilterColumns(ConnectorSession session, SchemaTableName viewName)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return delegate.getValidRefreshMaterializedViewFilterColumns(session, viewName);
+        }
+    }
+
+    @Override
     public ColumnHandle getUpdateRowIdColumnHandle(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
