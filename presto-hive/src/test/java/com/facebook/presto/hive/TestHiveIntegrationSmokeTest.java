@@ -50,6 +50,7 @@ import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestIntegrationSmokeTest;
 import com.facebook.presto.tests.DistributedQueryRunner;
+import com.facebook.presto.tests.QueryAssertions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -133,6 +134,7 @@ import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
 import static io.airlift.tpch.TpchTable.CUSTOMER;
 import static io.airlift.tpch.TpchTable.LINE_ITEM;
+import static io.airlift.tpch.TpchTable.NATION;
 import static io.airlift.tpch.TpchTable.ORDERS;
 import static io.airlift.tpch.TpchTable.PART_SUPPLIER;
 import static java.lang.String.format;
@@ -182,7 +184,7 @@ public class TestHiveIntegrationSmokeTest
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        return HiveQueryRunner.createQueryRunner(ORDERS, CUSTOMER, LINE_ITEM, PART_SUPPLIER);
+        return HiveQueryRunner.createQueryRunner(ORDERS, CUSTOMER, LINE_ITEM, PART_SUPPLIER, NATION);
     }
 
     private List<?> getPartitions(HiveTableLayoutHandle tableLayoutHandle)
@@ -5508,6 +5510,75 @@ public class TestHiveIntegrationSmokeTest
 
         // Clean up
         computeActual("DROP TABLE IF EXISTS test_customer_base_4");
+    }
+
+    @Test
+    public void testRefreshMaterializedView()
+    {
+        Session session = getSession();
+        QueryRunner queryRunner = getQueryRunner();
+
+        computeActual("CREATE TABLE test_nation_base_5 WITH (partitioned_by = ARRAY['nationkey', 'regionkey']) AS SELECT name, nationkey, regionkey FROM nation");
+        computeActual("CREATE TABLE test_customer_base_5 WITH (partitioned_by = ARRAY['nationkey']) AS SELECT custkey, name, mktsegment, nationkey FROM customer");
+        computeActual(
+                "CREATE MATERIALIZED VIEW test_customer_view_5 WITH (partitioned_by = ARRAY['marketsegment', 'nationkey', 'regionkey']" + retentionDays(30) + ") " +
+                        "AS SELECT test_nation_base_5.name AS nationname, customer.custkey, customer.name AS customername, UPPER(customer.mktsegment) AS marketsegment, customer.nationkey, regionkey " +
+                        "FROM test_nation_base_5 JOIN test_customer_base_5 customer ON (test_nation_base_5.nationkey = customer.nationkey)");
+
+        // Test predicate columns from two base tables
+        String refreshSql = "REFRESH MATERIALIZED VIEW test_customer_view_5 WHERE marketsegment = 'AUTOMOBILE' AND nationkey = 24 AND regionkey = 1";
+        String expectedInsertQuery = "SELECT *" +
+                "FROM (" +
+                "  SELECT nation.name AS nationname, customer.custkey, customer.name AS customername, UPPER(customer.mktsegment) AS marketsegment, customer.nationkey, regionkey " +
+                "  FROM (" +
+                "    SELECT * FROM test_nation_base_5 WHERE regionkey = 1" +
+                "  ) nation JOIN (" +
+                "    SELECT * FROM test_customer_base_5 WHERE nationkey = 24" +
+                "  ) customer ON (nation.nationkey = customer.nationkey)" +
+                ") WHERE marketsegment = 'AUTOMOBILE'";
+        QueryAssertions.assertQuery(
+                queryRunner,
+                session,
+                refreshSql,
+                queryRunner,
+                "SELECT COUNT(*) FROM ( " + expectedInsertQuery + " )",
+                false, true);
+
+        // Test predicate columns from one base table
+        refreshSql = "REFRESH MATERIALIZED VIEW test_customer_view_5 WHERE marketsegment = 'AUTOMOBILE' AND nationkey = 24";
+        expectedInsertQuery = "SELECT *" +
+                "FROM (" +
+                "  SELECT nation.name AS nationname, customer.custkey, customer.name AS customername, UPPER(customer.mktsegment) AS marketsegment, customer.nationkey, regionkey " +
+                "  FROM test_nation_base_5 nation JOIN (" +
+                "    SELECT * FROM test_customer_base_5 WHERE nationkey = 24" +
+                "  ) customer ON (nation.nationkey = customer.nationkey)" +
+                ") WHERE marketsegment = 'AUTOMOBILE'";
+        QueryAssertions.assertQuery(
+                queryRunner,
+                session,
+                refreshSql,
+                queryRunner,
+                "SELECT COUNT(*) FROM ( " + expectedInsertQuery + " )",
+                false, true);
+
+        refreshSql = "REFRESH MATERIALIZED VIEW test_customer_view_5 WHERE regionkey = 1";
+        expectedInsertQuery = "SELECT nation.name AS nationname, customer.custkey, customer.name AS customername, UPPER(customer.mktsegment) AS marketsegment, customer.nationkey, regionkey " +
+                "FROM (" +
+                "  SELECT * FROM test_nation_base_5 WHERE regionkey = 1" +
+                ") nation JOIN test_customer_base_5 customer ON (nation.nationkey = customer.nationkey)";
+        QueryAssertions.assertQuery(
+                queryRunner,
+                session,
+                refreshSql,
+                queryRunner,
+                "SELECT COUNT(*) FROM ( " + expectedInsertQuery + " )",
+                false, true);
+
+        // Test invalid predicates
+        assertQueryFails("REFRESH MATERIALIZED VIEW test_customer_view_5 WHERE nationname = 'UNITED STATES'", ".*Refresh materialized view by column nationname is not supported.*");
+        assertQueryFails("REFRESH MATERIALIZED VIEW test_customer_view_5 WHERE regionkey = 1 OR nationkey = 24", ".*Only logical AND is supported in WHERE clause.*");
+        assertQueryFails("REFRESH MATERIALIZED VIEW test_customer_view_5 WHERE regionkey + nationkey = 25", ".*Only columns specified on literals are supported in WHERE clause.*");
+        assertQueryFails("REFRESH MATERIALIZED VIEW test_customer_view_5", ".*mismatched input '<EOF>'\\. Expecting: '\\.', 'WHERE'.*");
     }
 
     protected String retentionDays(int days)

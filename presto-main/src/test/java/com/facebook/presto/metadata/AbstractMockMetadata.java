@@ -445,6 +445,12 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
+    public Optional<ConnectorOutputMetadata> finishRefreshMaterializedView(Session session, InsertTableHandle tableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void createRole(Session session, String role, Optional<PrestoPrincipal> grantor, String catalog)
     {
         throw new UnsupportedOperationException();

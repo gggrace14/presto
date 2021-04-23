@@ -381,6 +381,11 @@ public interface Metadata
     MaterializedViewStatus getMaterializedViewStatus(Session session, QualifiedObjectName materializedViewName);
 
     /**
+     * Finish refresh materialized view
+     */
+    Optional<ConnectorOutputMetadata> finishRefreshMaterializedView(Session session, InsertTableHandle tableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics);
+
+    /**
      * Try to locate a table index that can lookup results by indexableColumns and provide the requested outputColumns.
      */
     Optional<ResolvedIndex> resolveIndex(Session session, TableHandle tableHandle, Set<ColumnHandle> indexableColumns, Set<ColumnHandle> outputColumns, TupleDomain<ColumnHandle> tupleDomain);

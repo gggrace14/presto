@@ -1919,6 +1919,11 @@ public class HiveMetadata
     @Override
     public Optional<ConnectorOutputMetadata> finishInsert(ConnectorSession session, ConnectorInsertTableHandle insertHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
     {
+        return finishInsertInternal(session, insertHandle, fragments, computedStatistics, false);
+    }
+
+    private Optional<ConnectorOutputMetadata> finishInsertInternal(ConnectorSession session, ConnectorInsertTableHandle insertHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics, boolean forceOverwrite)
+    {
         HiveInsertTableHandle handle = (HiveInsertTableHandle) insertHandle;
 
         List<PartitionUpdate> partitionUpdates = getPartitionUpdates(fragments);
@@ -1995,7 +2000,7 @@ public class HiveMetadata
                         getTargetFileNames(partitionUpdate.getFileWriteInfos()),
                         partitionStatistics);
             }
-            else if (partitionUpdate.getUpdateMode() == APPEND) {
+            else if (!forceOverwrite && partitionUpdate.getUpdateMode() == APPEND) {
                 if (handle.getEncryptionInformation().isPresent()) {
                     throw new PrestoException(HIVE_UNSUPPORTED_ENCRYPTION_OPERATION, "Inserting into an existing partition with encryption enabled is not supported yet");
                 }
@@ -2016,7 +2021,7 @@ public class HiveMetadata
                         getTargetFileNames(partitionUpdate.getFileWriteInfos()),
                         partitionStatistics);
             }
-            else if (partitionUpdate.getUpdateMode() == NEW || partitionUpdate.getUpdateMode() == OVERWRITE) {
+            else if (forceOverwrite || partitionUpdate.getUpdateMode() == NEW || partitionUpdate.getUpdateMode() == OVERWRITE) {
                 Map<String, String> extraPartitionMetadata = handle.getEncryptionInformation()
                         .map(encryptionInfo -> encryptionInfo.getDwrfEncryptionMetadata().map(DwrfEncryptionMetadata::getExtraMetadata).orElseGet(ImmutableMap::of))
                         .orElseGet(ImmutableMap::of);
@@ -2040,7 +2045,7 @@ public class HiveMetadata
                     throw new PrestoException(HIVE_CONCURRENT_MODIFICATION_DETECTED, "Partition format changed during insert");
                 }
                 if (existingPartitions.contains(partitionUpdate.getName())) {
-                    if (partitionUpdate.getUpdateMode() == OVERWRITE) {
+                    if (forceOverwrite || partitionUpdate.getUpdateMode() == OVERWRITE) {
                         metastore.dropPartition(session, handle.getSchemaName(), handle.getTableName(), handle.getLocationHandle().getTargetPath().toString(), partition.getValues());
                     }
                     else {
@@ -2405,6 +2410,12 @@ public class HiveMetadata
         catch (TableNotFoundException e) {
             throw new MaterializedViewNotFoundException(e.getTableName());
         }
+    }
+
+    @Override
+    public Optional<ConnectorOutputMetadata> finishRefreshMaterializedView(ConnectorSession session, ConnectorInsertTableHandle insertHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
+    {
+        return finishInsertInternal(session, insertHandle, fragments, computedStatistics, true);
     }
 
     @Override
