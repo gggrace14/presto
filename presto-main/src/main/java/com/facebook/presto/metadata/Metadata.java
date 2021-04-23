@@ -381,6 +381,11 @@ public interface Metadata
     MaterializedViewStatus getMaterializedViewStatus(Session session, QualifiedObjectName materializedViewName);
 
     /**
+     * Finish refresh materialized view
+     */
+    Optional<ConnectorOutputMetadata> finishRefreshMaterializedView(Session session, InsertTableHandle tableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics);
+
+    /**
      * Returns the valid filter columns for refresh materialized view.
      */
     List<String> getValidRefreshMaterializedViewFilterColumns(Session session, QualifiedObjectName viewName);

@@ -595,6 +595,14 @@ public interface ConnectorMetadata
     }
 
     /**
+     * Finish refresh materialized view
+     */
+    default Optional<ConnectorOutputMetadata> finishRefreshMaterializedView(ConnectorSession session, ConnectorInsertTableHandle insertHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
+    {
+        throw new PrestoException(GENERIC_INTERNAL_ERROR, "ConnectorMetadata finishRefreshMaterializedView() is not implemented");
+    }
+
+    /**
      * Gets the valid filter columns for refresh materialized view.
      */
     default List<String> getValidRefreshMaterializedViewFilterColumns(ConnectorSession session, SchemaTableName viewName)
