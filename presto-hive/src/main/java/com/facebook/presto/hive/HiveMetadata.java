@@ -132,6 +132,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -281,6 +282,7 @@ import static com.facebook.presto.hive.PartitionUpdate.UpdateMode.NEW;
 import static com.facebook.presto.hive.PartitionUpdate.UpdateMode.OVERWRITE;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.toHivePrivilege;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.AVRO_SCHEMA_URL_KEY;
+import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_MATERIALIZED_VIEW_FLAG;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_QUERY_ID_NAME;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.PRESTO_VIEW_FLAG;
@@ -2376,21 +2378,37 @@ public class HiveMetadata
                 .build();
 
         MetastoreContext metastoreContext = new MetastoreContext(session.getIdentity(), session.getQueryId(), session.getClientInfo(), session.getSource());
-        validateMaterializedViewPartitionColumns(metastore, metastoreContext, viewTable, viewDefinition);
+//        validateMaterializedViewPartitionColumns(metastore, metastoreContext, viewTable, viewDefinition);
 
         try {
             PrincipalPrivileges principalPrivileges = buildInitialPrivilegeSet(viewTable.getOwner());
-            metastore.createTable(
-                    session,
-                    viewTable,
-                    principalPrivileges,
-                    Optional.empty(),
-                    ignoreExisting,
-                    new PartitionStatistics(createEmptyStatistics(), ImmutableMap.of()));
+//            metastore.createTable(
+//                    session,
+//                    viewTable,
+//                    principalPrivileges,
+//                    Optional.empty(),
+//                    ignoreExisting,
+//                    new PartitionStatistics(createEmptyStatistics(), ImmutableMap.of()));
         }
         catch (TableAlreadyExistsException e) {
             throw new MaterializedViewAlreadyExistsException(e.getTableName());
         }
+
+        List<Table> baseTables = viewDefinition.getBaseTables().stream()
+                .map(viewBaseTable -> metastore.getTable(metastoreContext, viewBaseTable.getSchemaName(), viewBaseTable.getTableName())
+                        .orElseThrow(() -> new TableNotFoundException(viewBaseTable)))
+                .collect(toImmutableList());
+
+        baseTables.forEach(baseTable -> {
+            Set<String> viewNames = new LinkedHashSet<>();
+            if (baseTable.getParameters().containsKey(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST)) {
+                viewNames.addAll(Splitter.on(",").splitToList(baseTable.getParameters().get(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST)));
+            }
+            viewNames.add(viewMetadata.getTable().toString());
+
+            Map<String, String> parameterToUpdate = ImmutableMap.of(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST, Joiner.on(",").join(viewNames));
+            metastore.updateTableParameters(session, baseTable.getDatabaseName(), baseTable.getTableName(), parameterToUpdate, ImmutableSet.of());
+        });
     }
 
     @Override
@@ -2410,6 +2428,36 @@ public class HiveMetadata
         catch (TableNotFoundException e) {
             throw new MaterializedViewNotFoundException(e.getTableName());
         }
+
+        MetastoreContext metastoreContext = new MetastoreContext(session.getIdentity(), session.getQueryId(), session.getClientInfo(), session.getSource());
+        view.get().getBaseTables().forEach(viewBaseTable -> {
+            Table baseTable = metastore.getTable(metastoreContext, viewBaseTable.getSchemaName(), viewBaseTable.getTableName())
+                    .orElseThrow(() -> new TableNotFoundException(viewBaseTable));
+
+            Set<String> viewNames = new LinkedHashSet<>();
+            if (baseTable.getParameters().containsKey(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST)) {
+                viewNames.addAll(Splitter.on(",").splitToList(baseTable.getParameters().get(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST)));
+            }
+
+            checkState(
+                    viewNames.contains(viewName.toString()),
+                    "Link of base table %s to materialized view %s is missing.",
+                    viewBaseTable.toString(), viewName.toString());
+            viewNames.remove(viewName.toString());
+
+            Map<String, String> parameterToUpdate;
+            Set<String> parameterToDrop;
+            if (viewNames.size() == 0) {
+                parameterToUpdate = ImmutableMap.of();
+                parameterToDrop = ImmutableSet.of(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST);
+            }
+            else {
+                parameterToUpdate = ImmutableMap.of(PRESTO_DEPENDENT_MATERIALIZED_VIEW_LIST, Joiner.on(",").join(viewNames));
+                parameterToDrop = ImmutableSet.of();
+            }
+            metastore.updateTableParameters(session, viewBaseTable.getSchemaName(), viewBaseTable.getTableName(), parameterToUpdate, parameterToDrop);
+        });
+
     }
 
     @Override

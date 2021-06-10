@@ -215,7 +215,6 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_FUNCTIO
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_ORDINAL;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_PROCEDURE_ARGUMENTS;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_WINDOW_FRAME;
-import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MATERIALIZED_VIEW_ALREADY_EXISTS;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MATERIALIZED_VIEW_IS_RECURSIVE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISMATCHED_COLUMN_ALIASES;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISMATCHED_SET_COLUMN_TYPES;
@@ -668,13 +667,13 @@ class StatementAnalyzer
             QualifiedObjectName viewName = createQualifiedObjectName(session, node, node.getName());
             analysis.setCreateTableDestination(viewName);
 
-            Optional<TableHandle> viewHandle = metadata.getTableHandle(session, viewName);
-            if (viewHandle.isPresent()) {
-                if (node.isNotExists()) {
-                    return createAndAssignScope(node, scope);
-                }
-                throw new SemanticException(MATERIALIZED_VIEW_ALREADY_EXISTS, node, "Destination materialized view '%s' already exists", viewName);
-            }
+//            Optional<TableHandle> viewHandle = metadata.getTableHandle(session, viewName);
+//            if (viewHandle.isPresent()) {
+//                if (node.isNotExists()) {
+//                    return createAndAssignScope(node, scope);
+//                }
+//                throw new SemanticException(MATERIALIZED_VIEW_ALREADY_EXISTS, node, "Destination materialized view '%s' already exists", viewName);
+//            }
             validateMaterialziedViewQueryPlan(node.getQuery());
             validateProperties(node.getProperties(), scope);
 

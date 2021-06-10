@@ -92,6 +92,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.Sets.difference;
 import static com.google.common.util.concurrent.Futures.whenAllSucceed;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static java.lang.String.format;
@@ -375,7 +376,7 @@ public class SemiTransactionalHiveMetastore
         checkNoPartitionAction(table.getDatabaseName(), table.getTableName());
         SchemaTableName schemaTableName = new SchemaTableName(table.getDatabaseName(), table.getTableName());
         Action<TableAndMore> oldTableAction = tableActions.get(schemaTableName);
-        TableAndMore tableAndMore = new TableAndMore(table, Optional.of(principalPrivileges), currentPath, Optional.empty(), ignoreExisting, statistics, statistics);
+        TableAndMore tableAndMore = new TableAndMore(table, Optional.of(principalPrivileges), currentPath, Optional.empty(), ignoreExisting, statistics, statistics, false);
         if (oldTableAction == null) {
             HdfsContext context = new HdfsContext(session, table.getDatabaseName(), table.getTableName(), table.getStorage().getLocation(), true);
             tableActions.put(schemaTableName, new Action<>(ActionType.ADD, tableAndMore, context));
@@ -441,6 +442,51 @@ public class SemiTransactionalHiveMetastore
         setExclusive((delegate, hdfsEnvironment) -> delegate.dropColumn(metastoreContext, databaseName, tableName, columnName));
     }
 
+    public synchronized void updateTableParameters(ConnectorSession session, String databaseName, String tableName, Map<String, String> parametersToUpdate, Set<String> parametersToDrop)
+    {
+        setShared();
+        // When updating a table, it should never have partition actions. This is just a sanity check.
+        checkNoPartitionAction(databaseName, tableName);
+        SchemaTableName schemaTableName = new SchemaTableName(databaseName, tableName);
+        Action<TableAndMore> oldTableAction = tableActions.get(schemaTableName);
+        if (oldTableAction == null) {
+            MetastoreContext metastoreContext = new MetastoreContext(session.getIdentity(), session.getQueryId(), session.getClientInfo(), session.getSource());
+            Table oldTable = getTable(metastoreContext, databaseName, tableName)
+                    .orElseThrow(() -> new TableNotFoundException(schemaTableName));
+
+            Map<String, String> parameters = new HashMap<>();
+            parameters.putAll(oldTable.getParameters());
+            parameters.putAll(parametersToUpdate);
+            parametersToDrop.forEach(parameters::remove);
+
+            Table newTable = Table.builder(oldTable).setParameters(ImmutableMap.copyOf(parameters)).build();
+
+            PartitionStatistics currentStatistics = getTableStatistics(metastoreContext, databaseName, tableName);
+            TableAndMore tableAndMore = new TableAndMore(
+                    newTable,
+                    Optional.empty(),
+                    Optional.empty(),
+                    Optional.empty(),
+                    false,
+                    currentStatistics,
+                    currentStatistics,
+                    true);
+            HdfsContext context = new HdfsContext(session, databaseName, tableName);
+            tableActions.put(schemaTableName, new Action<>(ActionType.ALTER, tableAndMore, context));
+            return;
+        }
+        switch (oldTableAction.getType()) {
+            case DROP:
+                throw new TableNotFoundException(schemaTableName);
+            case ADD:
+            case ALTER:
+            case INSERT_EXISTING:
+                throw new UnsupportedOperationException("Updating a table added/modified in the same transaction is not supported");
+            default:
+                throw new IllegalStateException("Unknown action type");
+        }
+    }
+
     public synchronized void finishInsertIntoExistingTable(
             ConnectorSession session,
             String databaseName,
@@ -472,7 +518,8 @@ public class SemiTransactionalHiveMetastore
                                     Optional.of(fileNames),
                                     false,
                                     merge(currentStatistics, statisticsUpdate),
-                                    statisticsUpdate),
+                                    statisticsUpdate,
+                                    false),
                             context));
             return;
         }
@@ -975,7 +1022,7 @@ public class SemiTransactionalHiveMetastore
                         committer.prepareDropTable(metastoreContext, schemaTableName);
                         break;
                     case ALTER:
-                        committer.prepareAlterTable();
+                        committer.prepareAlterTable(metastoreContext, action.getContext(), action.getData());
                         break;
                     case ADD:
                         committer.prepareAddTable(metastoreContext, action.getContext(), action.getData());
@@ -1027,6 +1074,7 @@ public class SemiTransactionalHiveMetastore
             // We are moving on to metastore operations now.
 
             committer.executeAddTableOperations();
+            committer.executeUpdateTableParametersOperations(); //
             committer.executeAlterPartitionOperations();
             committer.executeAddPartitionOperations();
             committer.executeUpdateStatisticsOperations();
@@ -1036,6 +1084,7 @@ public class SemiTransactionalHiveMetastore
 
             committer.undoUpdateStatisticsOperations();
             committer.undoAddPartitionOperations();
+            committer.undoUpdateTableParametersOperations(); //
             committer.undoAddTableOperations();
 
             committer.waitForAsyncRenamesSuppressThrowables();
@@ -1107,6 +1156,7 @@ public class SemiTransactionalHiveMetastore
         private final List<AlterPartitionOperation> alterPartitionOperations = new ArrayList<>();
         private final List<UpdateStatisticsOperation> updateStatisticsOperations = new ArrayList<>();
         private final List<IrreversibleMetastoreOperation> metastoreDeleteOperations = new ArrayList<>();
+        private final List<UpdateTableParametersOperation> updateTableParametersOperations = new ArrayList<>();
 
         // Flag for better error message
         private boolean deleteOnly = true;
@@ -1123,9 +1173,25 @@ public class SemiTransactionalHiveMetastore
                     () -> delegate.dropTable(metastoreContext, schemaTableName.getSchemaName(), schemaTableName.getTableName(), true)));
         }
 
-        private void prepareAlterTable()
+        private void prepareAlterTable(MetastoreContext metastoreContext, HdfsContext context, TableAndMore tableAndMore)
         {
             deleteOnly = false;
+
+            if (tableAndMore.isMutateParametersOnly()) {
+                Table table = tableAndMore.getTable();
+                if (table.getTableType().equals(TEMPORARY_TABLE)) {
+                    // do not commit a temporary table to the metastore
+                    return;
+                }
+
+                SchemaTableName schemaTableName = new SchemaTableName(table.getDatabaseName(), table.getTableName());
+                Table oldTable = delegate.getTable(metastoreContext, table.getDatabaseName(), table.getTableName())
+                        .orElseThrow(() -> new PrestoException(TRANSACTION_CONFLICT, "Table that this transaction modified was deleted in another transaction: " + schemaTableName.toString()));
+
+                updateTableParametersOperations.add(
+                        new UpdateTableParametersOperation(metastoreContext, schemaTableName, ImmutableMap.copyOf(table.getParameters()), ImmutableMap.copyOf(oldTable.getParameters())));
+                return;
+            }
 
             // Currently, ALTER action is never constructed for tables. Dropping a table and then re-creating it
             // in the same transaction is not supported now. The following line should be replaced with actual
@@ -1431,6 +1497,13 @@ public class SemiTransactionalHiveMetastore
             }
         }
 
+        private void executeUpdateTableParametersOperations()
+        {
+            for (UpdateTableParametersOperation updateOperation : updateTableParametersOperations) {
+                updateOperation.run(delegate);
+            }
+        }
+
         private void executeAlterPartitionOperations()
         {
             for (AlterPartitionOperation alterPartitionOperation : alterPartitionOperations) {
@@ -1479,6 +1552,18 @@ public class SemiTransactionalHiveMetastore
                 }
                 catch (Throwable throwable) {
                     logCleanupFailure(throwable, "failed to rollback: %s", addTableOperation.getDescription());
+                }
+            }
+        }
+
+        private void undoUpdateTableParametersOperations()
+        {
+            for (UpdateTableParametersOperation updateOperation : updateTableParametersOperations) {
+                try {
+                    updateOperation.undo(delegate);
+                }
+                catch (Throwable throwable) {
+                    logCleanupFailure(throwable, "failed to rollback: %s", updateOperation.getDescription());
                 }
             }
         }
@@ -2069,6 +2154,7 @@ public class SemiTransactionalHiveMetastore
         private final boolean ignoreExisting;
         private final PartitionStatistics statistics;
         private final PartitionStatistics statisticsUpdate;
+        private final boolean mutateParametersOnly;
 
         public TableAndMore(
                 Table table,
@@ -2077,7 +2163,8 @@ public class SemiTransactionalHiveMetastore
                 Optional<List<String>> fileNames,
                 boolean ignoreExisting,
                 PartitionStatistics statistics,
-                PartitionStatistics statisticsUpdate)
+                PartitionStatistics statisticsUpdate,
+                boolean mutateParametersOnly)
         {
             this.table = requireNonNull(table, "table is null");
             this.principalPrivileges = requireNonNull(principalPrivileges, "principalPrivileges is null");
@@ -2086,6 +2173,7 @@ public class SemiTransactionalHiveMetastore
             this.ignoreExisting = ignoreExisting;
             this.statistics = requireNonNull(statistics, "statistics is null");
             this.statisticsUpdate = requireNonNull(statisticsUpdate, "statisticsUpdate is null");
+            this.mutateParametersOnly = mutateParametersOnly;
 
             checkArgument(!table.getTableType().equals(VIRTUAL_VIEW) || !currentLocation.isPresent(), "currentLocation can not be supplied for view");
             checkArgument(!fileNames.isPresent() || currentLocation.isPresent(), "fileNames can be supplied only when currentLocation is supplied");
@@ -2127,6 +2215,11 @@ public class SemiTransactionalHiveMetastore
             return statisticsUpdate;
         }
 
+        public boolean isMutateParametersOnly()
+        {
+            return mutateParametersOnly;
+        }
+
         public Table getAugmentedTableForInTransactionRead()
         {
             // Don't augment the location for partitioned tables,
@@ -2164,6 +2257,7 @@ public class SemiTransactionalHiveMetastore
                     .add("ignoreExisting", ignoreExisting)
                     .add("statistics", statistics)
                     .add("statisticsUpdate", statisticsUpdate)
+                    .add("mutateParametersOnly", mutateParametersOnly)
                     .toString();
         }
     }
@@ -2651,6 +2745,55 @@ public class SemiTransactionalHiveMetastore
         private PartitionStatistics resetStatistics(PartitionStatistics currentStatistics)
         {
             return new PartitionStatistics(reduce(currentStatistics.getBasicStatistics(), statistics.getBasicStatistics(), SUBTRACT), ImmutableMap.of());
+        }
+    }
+
+    private static class UpdateTableParametersOperation
+    {
+        private final SchemaTableName tableName;
+        private final Map<String, String> oldParameters;
+        private final Map<String, String> newParameters;
+        private final MetastoreContext metastoreContext;
+
+        private boolean done;
+
+        public UpdateTableParametersOperation(MetastoreContext metastoreContext, SchemaTableName tableName, Map<String, String> newParameters, Map<String, String> oldParameters)
+        {
+            this.tableName = requireNonNull(tableName, "tableName is null");
+            this.oldParameters = ImmutableMap.copyOf(requireNonNull(oldParameters, "oldParameters is null"));
+            this.newParameters = ImmutableMap.copyOf(requireNonNull(newParameters, "newParameters is null"));
+            this.metastoreContext = requireNonNull(metastoreContext, "identity is null");
+
+            checkArgument(oldParameters.getClass().equals(newParameters.getClass()), "oldParameters and newParameters are of different types.");
+
+            done = false;
+        }
+
+        public String getDescription()
+        {
+            return format(
+                    "update table parameters %s.%s",
+                    tableName.getSchemaName(),
+                    tableName.getTableName());
+        }
+
+        public void run(ExtendedHiveMetastore metastore)
+        {
+            Set<String> toDrop = ImmutableSet.copyOf(difference(oldParameters.keySet(), newParameters.keySet()));
+            Map<String, String> toUpdate = ImmutableMap.copyOf(difference(newParameters.entrySet(), oldParameters.entrySet()));
+            metastore.updateTableParameters(metastoreContext, tableName.getSchemaName(), tableName.getTableName(), toUpdate, toDrop);
+            done = true;
+        }
+
+        public void undo(ExtendedHiveMetastore metastore)
+        {
+            if (!done) {
+                return;
+            }
+            Set<String> toDrop = difference(newParameters.keySet(), oldParameters.keySet());
+            Map<String, String> toUpdate = ImmutableMap.copyOf(difference(oldParameters.entrySet(), newParameters.entrySet()));
+            metastore.updateTableParameters(metastoreContext, tableName.getSchemaName(), tableName.getTableName(), toUpdate, toDrop);
+            done = false;
         }
     }
 
