@@ -14,6 +14,7 @@
 package com.facebook.presto.operator;
 
 import com.facebook.airlift.json.JsonCodec;
+import com.facebook.airlift.log.Logger;
 import com.facebook.presto.Session;
 import com.facebook.presto.common.Page;
 import com.facebook.presto.common.PageBuilder;
@@ -69,6 +70,8 @@ public class TableFinishOperator
         implements Operator
 {
     public static final List<Type> TYPES = ImmutableList.of(BIGINT);
+
+    private static final Logger log = Logger.get(TableFinishOperator.class);
 
     public static class TableFinishOperatorFactory
             implements OperatorFactory
@@ -285,7 +288,9 @@ public class TableFinishOperator
         }
         state = State.FINISHED;
 
+        log.info("=====Sapphire_on_Velox=====Before file rename");
         lifespanAndStageStateTracker.commit();
+        log.info("=====Sapphire_on_Velox=====Before finish table");
         outputMetadata.set(tableFinisher.finishTable(lifespanAndStageStateTracker.getFinalFragments(), computedStatisticsBuilder.build()));
 
         // output page will only be constructed once,

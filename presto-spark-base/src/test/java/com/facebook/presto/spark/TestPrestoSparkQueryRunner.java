@@ -1328,4 +1328,69 @@ public class TestPrestoSparkQueryRunner
     {
         assertQuery(sql, sql.replaceAll("_bucketed", ""));
     }
+
+    @Test
+    public void testTableCommit()
+    {
+        // some basic tests
+        assertQuerySucceeds(
+                "CREATE TABLE hive.hive_test.partitioned_orders (\n" +
+                        "        orderkey BIGINT, custkey BIGINT, orderpriority VARCHAR, orderstatus VARCHAR\n" +
+                        ") WITH (\n" +
+                        "        partitioned_by = ARRAY['orderpriority', 'orderstatus'],\n" +
+                        "        bucketed_by = ARRAY['orderkey'],\n" +
+                        "        bucket_count = 2\n" +
+                        ")");
+
+        assertQuerySucceeds("" +
+                "INSERT INTO hive.hive_test.partitioned_orders\n" +
+                "SELECT orderkey, custkey, orderpriority, orderstatus\n" +
+                "FROM orders");
+    }
+
+    @Test
+    public void testRetryTableCommit()
+    {
+        Session session = Session.builder(getSession())
+                .setSystemProperty(JOIN_DISTRIBUTION_TYPE, "BROADCAST")
+                .setSystemProperty(STORAGE_BASED_BROADCAST_JOIN_ENABLED, "true")
+                .setSystemProperty(SPARK_BROADCAST_JOIN_MAX_MEMORY_OVERRIDE, "10B")
+                .setSystemProperty(SPARK_RETRY_ON_OUT_OF_MEMORY_BROADCAST_JOIN_ENABLED, "true")
+                .build();
+        assertQuerySucceeds(
+                session,
+                "CREATE TABLE hive.hive_test.gaoge_retry\n" +
+                        "WITH (\n" +
+                        "        partitioned_by = ARRAY['o_orderpriority', 'o_orderstatus'],\n" +
+                        "        bucketed_by = ARRAY['o_orderkey'],\n" +
+                        "        bucket_count = 5\n" +
+                        ")\n" +
+                        "AS SELECT\n" +
+                        "        l.orderkey l_orderkey,\n" +
+                        "        l.partkey l_partkey,\n" +
+                        "        l.suppkey l_suppkey,\n" +
+                        "        l.linenumber l_linenumber,\n" +
+                        "        l.quantity l_quantity,\n" +
+                        "        l.extendedprice l_extendedprice,\n" +
+                        "        l.discount l_discount,\n" +
+                        "        l.tax l_tax,\n" +
+                        "        l.returnflag l_returnflag,\n" +
+                        "        l.linestatus l_linestatus,\n" +
+                        "        l.shipdate l_shipdate,\n" +
+                        "        l.commitdate l_commitdate,\n" +
+                        "        l.receiptdate l_receiptdate,\n" +
+                        "        l.shipinstruct l_shipinstruct,\n" +
+                        "        l.shipmode l_shipmode,\n" +
+                        "        l.comment l_comment,\n" +
+                        "        o.orderkey o_orderkey,\n" +
+                        "        o.custkey o_custkey,\n" +
+                        "        o.totalprice o_totalprice,\n" +
+                        "        o.orderdate o_orderdate,\n" +
+                        "        o.clerk o_clerk,\n" +
+                        "        o.shippriority o_shippriority,\n" +
+                        "        o.comment o_comment,\n" +
+                        "        o.orderpriority o_orderpriority,\n" +
+                        "        o.orderstatus o_orderstatus\n" +
+                        "FROM lineitem l JOIN orders o ON l.orderkey = o.orderkey");
+    }
 }
