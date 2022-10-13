@@ -38,6 +38,7 @@ target_link_libraries(
   gtest
   gtest_main
   $<TARGET_OBJECTS:presto_protocol>
+  velox_hive_write_protocol
   velox_type
   velox_encode
   velox_exception
