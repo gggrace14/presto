@@ -811,16 +811,20 @@ folly::Future<std::unique_ptr<protocol::TaskStatus>> TaskManager::getTaskStatus(
   prestoTask->task->stateChangeFuture(maxWaitMicros)
       .via(eventBase)
       .thenValue([promiseHolder, prestoTask](auto&& /*done*/) {
+        auto taskStatus = prestoTask->updateStatus();
+        VLOG(1) << "<getTaskStatus()> Successful status changed TO "
+                << folly::to<std::string>(taskStatus.state);
         promiseHolder->promise.setValue(
-            std::make_unique<protocol::TaskStatus>(prestoTask->updateStatus()));
+            std::make_unique<protocol::TaskStatus>(taskStatus));
       })
       .thenError(
           folly::tag_t<std::exception>{},
           [promiseHolder, prestoTask](std::exception const& /*e*/) {
-            // We come here in the case of maxWait elapsed.
+            auto taskStatus = prestoTask->updateStatus();
+            VLOG(1) << "<getTaskStatus()> Time out status changed TO "
+                    << folly::to<std::string>(taskStatus.state);
             promiseHolder->promise.setValue(
-                std::make_unique<protocol::TaskStatus>(
-                    prestoTask->updateStatus()));
+                std::make_unique<protocol::TaskStatus>(taskStatus));
           });
   return std::move(future).via(eventBase);
 }

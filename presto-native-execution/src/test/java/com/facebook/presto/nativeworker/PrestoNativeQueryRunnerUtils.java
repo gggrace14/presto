@@ -80,17 +80,11 @@ public class PrestoNativeQueryRunnerUtils
     {
         if (prestoServerPath.isPresent()) {
             checkArgument(dataDirectory.isPresent(), "Path to data files must be specified when testing external workers");
+            return createNativeQueryRunner(dataDirectory.get().toString(), prestoServerPath.get(), workerCount, cacheMaxSize, true);
         }
-
-        QueryRunner defaultQueryRunner = createJavaQueryRunner(dataDirectory);
-
-        if (!prestoServerPath.isPresent()) {
-            return defaultQueryRunner;
+        else {
+            return createJavaQueryRunner(dataDirectory);
         }
-
-        defaultQueryRunner.close();
-
-        return createNativeQueryRunner(dataDirectory.get().toString(), prestoServerPath.get(), workerCount, cacheMaxSize, true);
     }
 
     public static QueryRunner createJavaQueryRunner() throws Exception

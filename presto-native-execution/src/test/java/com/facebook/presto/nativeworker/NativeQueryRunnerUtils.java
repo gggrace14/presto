@@ -41,6 +41,7 @@ public class NativeQueryRunnerUtils
                 .put("inline-sql-functions", "false")
                 .put("use-alternative-function-signatures", "true")
                 .put("experimental.table-writer-merge-operator-enabled", "false")
+                .put("task.status-refresh-max-wait", "5s")
                 .build();
     }
 
