@@ -381,6 +381,9 @@ void PeriodicTaskManager::updateCacheStats() {
     RECORD_METRIC_VALUE(
         kCounterCacheMaxAgeSecs,
         cacheTTLController->getCacheAgeStats().maxAgeSecs);
+    RECORD_METRIC_VALUE(
+        kCounterCacheNumAgeTrackedFiles,
+        cacheTTLController->getCacheAgeStats().numTrackedFiles);
 
     RECORD_METRIC_VALUE(
         kCounterMemoryCacheNumAgedOutEntries,

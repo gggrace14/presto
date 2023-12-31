@@ -218,6 +218,10 @@ constexpr folly::StringPiece kCounterSpillPeakMemoryBytes{
 /// was opened to load the cache.
 constexpr folly::StringPiece kCounterCacheMaxAgeSecs{
     "presto_cpp.cache_max_age_secs"};
+/// Number of files with age tracked that were loaded to the AsyncDataCache and
+/// SsdCache.
+constexpr folly::StringPiece kCounterCacheNumAgeTrackedFiles{
+    "presto_cpp.cache_num_age_tracked_files"};
 
 /// Total number of cache entries.
 constexpr folly::StringPiece kCounterMemoryCacheNumEntries{

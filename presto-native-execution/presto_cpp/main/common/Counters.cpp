@@ -90,6 +90,8 @@ void registerPrestoMetrics() {
   /// ================== AsyncDataCache Counters ==================
 
   DEFINE_METRIC(kCounterCacheMaxAgeSecs, facebook::velox::StatType::AVG);
+  DEFINE_METRIC(
+      kCounterCacheNumAgeTrackedFiles, facebook::velox::StatType::AVG);
 
   DEFINE_METRIC(kCounterMemoryCacheNumEntries, facebook::velox::StatType::AVG);
   DEFINE_METRIC(
