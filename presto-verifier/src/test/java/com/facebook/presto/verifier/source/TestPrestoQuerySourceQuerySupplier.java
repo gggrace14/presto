@@ -70,9 +70,9 @@ public class TestPrestoQuerySourceQuerySupplier
             "        ('Q2', 'INSERT INTO test_table SELECT 1')\n" +
             ") queries(name, query)";
     private static final QueryConfiguration CONTROL_CONFIGURATION = new QueryConfiguration(
-            "catalog", "schema", Optional.of("user"), Optional.empty(), Optional.of(ImmutableMap.of("a", "b")));
+            "catalog", "schema", Optional.of("user"), Optional.empty(), Optional.of(ImmutableMap.of("a", "b")), Optional.empty());
     private static final QueryConfiguration TEST_CONFIGURATION = new QueryConfiguration(
-            "catalog", "schema", Optional.of("user"), Optional.empty(), Optional.of(ImmutableMap.of("c", "d")));
+            "catalog", "schema", Optional.of("user"), Optional.empty(), Optional.of(ImmutableMap.of("c", "d")), Optional.empty());
     private static final List<SourceQuery> SOURCE_QUERIES = ImmutableList.of(
             new SourceQuery("test", "Q1", "SELECT 1", "SELECT 1", CONTROL_CONFIGURATION, TEST_CONFIGURATION),
             new SourceQuery("test", "Q2", "INSERT INTO test_table SELECT 1", "INSERT INTO test_table SELECT 1", CONTROL_CONFIGURATION, TEST_CONFIGURATION));

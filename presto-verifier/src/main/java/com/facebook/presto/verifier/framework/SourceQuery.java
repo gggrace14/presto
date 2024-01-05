@@ -67,6 +67,12 @@ public class SourceQuery
         return clusterType == CONTROL ? controlQuery : testQuery;
     }
 
+    public QueryConfiguration getQueryConfiguration(ClusterType clusterType)
+    {
+        checkArgument(clusterType == CONTROL || clusterType == TEST, "Invalid ClusterType: %s", clusterType);
+        return clusterType == CONTROL ? controlConfiguration : testConfiguration;
+    }
+
     public QueryConfiguration getControlConfiguration()
     {
         return controlConfiguration;

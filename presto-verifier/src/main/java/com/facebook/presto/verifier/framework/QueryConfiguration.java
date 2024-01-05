@@ -13,11 +13,13 @@
  */
 package com.facebook.presto.verifier.framework;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.jdbi.v3.core.mapper.reflect.ColumnName;
 import org.jdbi.v3.core.mapper.reflect.JdbiConstructor;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -29,11 +31,13 @@ import static java.util.Objects.requireNonNull;
 
 public class QueryConfiguration
 {
+    public static final String CLIENT_TAG_OUTPUT_REUSABLE = "OUTPUT_REUSABLE";
     private final String catalog;
     private final String schema;
     private final Optional<String> username;
     private final Optional<String> password;
     private final Map<String, String> sessionProperties;
+    private final List<String> clientTags;
 
     @JdbiConstructor
     public QueryConfiguration(
@@ -41,13 +45,15 @@ public class QueryConfiguration
             @ColumnName("schema") String schema,
             @ColumnName("username") Optional<String> username,
             @ColumnName("password") Optional<String> password,
-            @ColumnName("session_properties") Optional<Map<String, String>> sessionProperties)
+            @ColumnName("session_properties") Optional<Map<String, String>> sessionProperties,
+            @ColumnName("client_tags") Optional<List<String>> clientTags)
     {
         this.catalog = requireNonNull(catalog, "catalog is null");
         this.schema = requireNonNull(schema, "schema is null");
         this.username = requireNonNull(username, "username is null");
         this.password = requireNonNull(password, "password is null");
         this.sessionProperties = ImmutableMap.copyOf(sessionProperties.orElse(ImmutableMap.of()));
+        this.clientTags = ImmutableList.copyOf(clientTags.orElse(ImmutableList.of()));
     }
 
     public QueryConfiguration applyOverrides(QueryConfigurationOverrides overrides)
@@ -68,7 +74,8 @@ public class QueryConfiguration
                 overrides.getSchemaOverride().orElse(schema),
                 Optional.ofNullable(overrides.getUsernameOverride().orElse(username.orElse(null))),
                 Optional.ofNullable(overrides.getPasswordOverride().orElse(password.orElse(null))),
-                Optional.of(sessionProperties));
+                Optional.of(sessionProperties),
+                Optional.of(clientTags));
     }
 
     public String getCatalog()
@@ -96,6 +103,11 @@ public class QueryConfiguration
         return sessionProperties;
     }
 
+    public List<String> getClientTags()
+    {
+        return clientTags;
+    }
+
     @Override
     public boolean equals(Object obj)
     {
@@ -110,13 +122,14 @@ public class QueryConfiguration
                 Objects.equals(schema, o.schema) &&
                 Objects.equals(username, o.username) &&
                 Objects.equals(password, o.password) &&
-                Objects.equals(sessionProperties, o.sessionProperties);
+                Objects.equals(sessionProperties, o.sessionProperties) &&
+                Objects.equals(clientTags, o.clientTags);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(catalog, schema, username, password, sessionProperties);
+        return Objects.hash(catalog, schema, username, password, sessionProperties, clientTags);
     }
 
     @Override
@@ -128,6 +141,7 @@ public class QueryConfiguration
                 .add("username", username)
                 .add("password", password)
                 .add("sessionProperties", sessionProperties)
+                .add("clientTags", clientTags)
                 .toString();
     }
 }

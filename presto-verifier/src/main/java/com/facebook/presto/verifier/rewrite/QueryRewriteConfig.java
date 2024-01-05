@@ -31,6 +31,21 @@ public class QueryRewriteConfig
     private QualifiedName tablePrefix = QualifiedName.of("tmp_verifier");
     private Map<String, Object> tableProperties = ImmutableMap.of();
 
+    private boolean reuseTable;
+
+    public boolean isReuseTable()
+    {
+        return reuseTable;
+    }
+
+    @ConfigDescription("If true, reuse the result from the source query table. Otherwise, create a temporary shadow table and run the query.")
+    @Config("reuse-table")
+    public QueryRewriteConfig setReuseTable(boolean reuseTable)
+    {
+        this.reuseTable = reuseTable;
+        return this;
+    }
+
     @NotNull
     public QualifiedName getTablePrefix()
     {

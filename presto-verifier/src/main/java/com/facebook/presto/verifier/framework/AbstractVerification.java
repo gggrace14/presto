@@ -205,8 +205,11 @@ public abstract class AbstractVerification<B extends QueryBundle, R extends Matc
             }
             test = Optional.of(getQueryRewrite(TEST));
 
+            boolean controlReuseTable = control.isPresent() && control.get() instanceof QueryObjectBundle && ((QueryObjectBundle) control.get()).isReuseTable();
+            boolean testReuseTable = test.isPresent() && test.get() instanceof QueryObjectBundle && ((QueryObjectBundle) test.get()).isReuseTable();
+
             // First run setup queries
-            if (isControlEnabled()) {
+            if (isControlEnabled() && !controlReuseTable) {
                 QueryBundle controlQueryBundle = control.get();
                 QueryAction controlSetupAction = setupOnMainClusters ? queryActions.getControlAction() : queryActions.getHelperAction();
                 controlQueryBundle.getSetupQueries().forEach(query -> runAndConsume(
@@ -214,27 +217,33 @@ public abstract class AbstractVerification<B extends QueryBundle, R extends Matc
                         controlQueryContext::addSetupQuery,
                         controlQueryContext::setException));
             }
-            QueryBundle testQueryBundle = test.get();
-            QueryAction testSetupAction = setupOnMainClusters ? queryActions.getTestAction() : queryActions.getHelperAction();
-            testQueryBundle.getSetupQueries().forEach(query -> runAndConsume(
-                    () -> testSetupAction.execute(query, TEST_SETUP),
-                    testQueryContext::addSetupQuery,
-                    testQueryContext::setException));
+            if (!testReuseTable) {
+                QueryBundle testQueryBundle = test.get();
+                QueryAction testSetupAction = setupOnMainClusters ? queryActions.getTestAction() : queryActions.getHelperAction();
+                testQueryBundle.getSetupQueries().forEach(query -> runAndConsume(
+                        () -> testSetupAction.execute(query, TEST_SETUP),
+                        testQueryContext::addSetupQuery,
+                        testQueryContext::setException));
+            }
 
             ListenableFuture<Optional<QueryResult<V>>> controlQueryFuture = immediateFuture(Optional.empty());
+            ListenableFuture<Optional<QueryResult<V>>> testQueryFuture = immediateFuture(Optional.empty());
             // Start control query
-            if (isControlEnabled()) {
+            if (isControlEnabled() && !controlReuseTable) {
                 QueryBundle controlQueryBundle = control.get();
                 controlQueryFuture = executor.submit(() -> runMainQuery(controlQueryBundle.getQuery(), CONTROL, controlQueryContext));
             }
-
             if (!concurrentControlAndTest) {
                 getFutureValue(controlQueryFuture);
             }
 
             // Run test queries
-            ListenableFuture<Optional<QueryResult<V>>> testQueryFuture = executor.submit(() -> runMainQuery(testQueryBundle.getQuery(), TEST, testQueryContext));
+            if (!testReuseTable) {
+                QueryBundle testQueryBundle = test.get();
+                testQueryFuture = executor.submit(() -> runMainQuery(testQueryBundle.getQuery(), TEST, testQueryContext));
+            }
             controlQueryResult = getFutureValue(controlQueryFuture);
+
             if (QUERY_BANK_MODE.equals(runningMode) && !saveSnapshot) {
                 controlQueryContext.setState(QueryState.SUCCEEDED);
                 controlQueryContext.setMainQueryStats(EMPTY_STATS);

@@ -84,7 +84,7 @@ public class DataVerification
     @Override
     protected QueryObjectBundle getQueryRewrite(ClusterType clusterType)
     {
-        return queryRewriter.rewriteQuery(getSourceQuery().getQuery(clusterType), clusterType);
+        return queryRewriter.rewriteQuery(getSourceQuery().getQuery(clusterType), getSourceQuery().getQueryConfiguration(clusterType), clusterType, true);
     }
 
     @Override

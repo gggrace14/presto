@@ -61,7 +61,7 @@ public abstract class AbstractVerificationTest
     protected static final String SUITE = "test-suite";
     protected static final String NAME = "test-query";
     protected static final String TEST_ID = "test-id";
-    protected static final QueryConfiguration QUERY_CONFIGURATION = new QueryConfiguration(CATALOG, SCHEMA, Optional.of("user"), Optional.empty(), Optional.empty());
+    protected static final QueryConfiguration QUERY_CONFIGURATION = new QueryConfiguration(CATALOG, SCHEMA, Optional.of("user"), Optional.empty(), Optional.empty(), Optional.empty());
     protected static final ParsingOptions PARSING_OPTIONS = ParsingOptions.builder().setDecimalLiteralTreatment(AS_DOUBLE).build();
     protected static final String CONTROL_TABLE_PREFIX = "tmp_verifier_c";
     protected static final String TEST_TABLE_PREFIX = "tmp_verifier_t";

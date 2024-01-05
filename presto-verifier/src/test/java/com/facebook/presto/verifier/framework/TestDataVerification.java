@@ -337,7 +337,8 @@ public class TestDataVerification
     @Test
     public void testExecutionTimeSessionProperty()
     {
-        QueryConfiguration configuration = new QueryConfiguration(CATALOG, SCHEMA, Optional.of("user"), Optional.empty(), Optional.of(ImmutableMap.of(QUERY_MAX_EXECUTION_TIME, "20m")));
+        QueryConfiguration configuration = new QueryConfiguration(CATALOG, SCHEMA, Optional.of("user"), Optional.empty(), Optional.of(ImmutableMap.of(QUERY_MAX_EXECUTION_TIME,
+                "20m")), Optional.empty());
         SourceQuery sourceQuery = new SourceQuery(SUITE, NAME, "SELECT 1.0", "SELECT 1.00001", configuration, configuration);
         Optional<VerifierQueryEvent> event = verify(sourceQuery, false);
         assertTrue(event.isPresent());
