@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.verifier.checksum;
 
+import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.Query;
@@ -29,6 +30,7 @@ import javax.inject.Provider;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static com.facebook.presto.sql.QueryUtil.simpleQuery;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -43,14 +45,14 @@ public class ChecksumValidator
         this.columnValidators = columnValidators;
     }
 
-    public Query generateChecksumQuery(QualifiedName tableName, List<Column> columns)
+    public Query generateChecksumQuery(QualifiedName tableName, List<Column> columns, Optional<Expression> partitionPredicate)
     {
         ImmutableList.Builder<SelectItem> selectItems = ImmutableList.builder();
         selectItems.add(new SingleColumn(new FunctionCall(QualifiedName.of("count"), ImmutableList.of())));
         for (Column column : columns) {
             selectItems.addAll(columnValidators.get(column.getCategory()).get().generateChecksumColumns(column));
         }
-        return simpleQuery(new Select(false, selectItems.build()), new Table(tableName));
+        return simpleQuery(new Select(false, selectItems.build()), new Table(tableName), partitionPredicate, Optional.empty());
     }
 
     public List<ColumnMatchResult<?>> getMismatchedColumns(List<Column> columns, ChecksumResult controlChecksum, ChecksumResult testChecksum)

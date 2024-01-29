@@ -251,12 +251,18 @@ public abstract class AbstractVerification<B extends QueryBundle, R extends Matc
             else if (!skipControl || QUERY_BANK_MODE.equals(runningMode)) {
                 // saveSnapshot or regular run with skipControl = false
                 controlQueryContext.setState(QueryState.SUCCEEDED);
+                if (controlReuseTable) {
+                    controlQueryContext.setMainQueryStats(EMPTY_STATS);
+                }
             }
             else {
                 controlQueryContext.setState(NOT_RUN);
             }
             testQueryResult = getFutureValue(testQueryFuture);
             testQueryContext.setState(QueryState.SUCCEEDED);
+            if (testReuseTable) {
+                testQueryContext.setMainQueryStats(EMPTY_STATS);
+            }
 
             // Verify results
             if (QUERY_BANK_MODE.equals(runningMode) && !saveSnapshot && !skipChecksum) {

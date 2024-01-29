@@ -87,6 +87,7 @@ public class TestTooManyOpenPartitionsFailureResolver
                     "INSERT INTO test SELECT * FROM source",
                     ParsingOptions.builder().setDecimalLiteralTreatment(AS_DOUBLE).build()),
             ImmutableList.of(),
+            Optional.empty(),
             TEST,
             false);
     private static final QueryException HIVE_TOO_MANY_OPEN_PARTITIONS_EXCEPTION = new PrestoQueryException(

@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.verifier.rewrite;
 
+import com.facebook.presto.common.block.BlockEncodingManager;
+import com.facebook.presto.common.block.BlockEncodingSerde;
 import com.facebook.presto.sql.parser.ParsingOptions;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.parser.SqlParserOptions;
@@ -73,12 +75,14 @@ public class TestQueryRewriter
             Optional.of("user"),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
     private static final ParsingOptions PARSING_OPTIONS = ParsingOptions.builder().setDecimalLiteralTreatment(AS_DOUBLE).build();
     private static final QueryRewriteConfig QUERY_REWRITE_CONFIG = new QueryRewriteConfig()
             .setTablePrefix("local.tmp")
             .setTableProperties("{\"p_int\": 30, \"p_long\": 4294967297, \"p_double\": 1.5, \"p_varchar\": \"test\", \"p_bool\": true}");
     private static final SqlParser sqlParser = new SqlParser(new SqlParserOptions().allowIdentifierSymbol(COLON, AT_SIGN));
+    private static final BlockEncodingSerde blockEncodingSerde = new BlockEncodingManager();
 
     private static StandaloneQueryRunner queryRunner;
     private static PrestoAction prestoAction;
@@ -533,7 +537,7 @@ public class TestQueryRewriter
 
     private QueryRewriter getQueryRewriter(QueryRewriteConfig config)
     {
-        return new VerificationQueryRewriterFactory(sqlParser, createTypeManager(), config, config).create(prestoAction);
+        return new VerificationQueryRewriterFactory(sqlParser, createTypeManager(), blockEncodingSerde, config, config).create(prestoAction);
     }
 
     private QueryRewriter getQueryRewriter(Optional<String> nonDeterministicFunctionSubstitutes)
@@ -541,6 +545,7 @@ public class TestQueryRewriter
         return new QueryRewriter(
                 sqlParser,
                 createTypeManager(),
+                blockEncodingSerde,
                 prestoAction,
                 ImmutableMap.of(CONTROL, QualifiedName.of("control"), TEST, QualifiedName.of("test")),
                 ImmutableMap.of(CONTROL, ImmutableList.of(), TEST, ImmutableList.of()),

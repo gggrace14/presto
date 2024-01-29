@@ -115,7 +115,8 @@ public class TestChecksumValidator
                         MAP_ARRAY_COLUMN,
                         MAP_COLUMN,
                         MAP_NON_ORDERABLE_COLUMN,
-                        ROW_COLUMN));
+                        ROW_COLUMN),
+                Optional.empty());
         Statement expectedChecksumQuery = sqlParser.createStatement(
                 "SELECT\n" +
                         "  \"count\"(*)\n" +

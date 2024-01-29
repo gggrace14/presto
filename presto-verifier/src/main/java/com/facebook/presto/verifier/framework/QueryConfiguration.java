@@ -39,6 +39,8 @@ public class QueryConfiguration
     private final Map<String, String> sessionProperties;
     private final List<String> clientTags;
 
+    private final List<String> partitions;
+
     @JdbiConstructor
     public QueryConfiguration(
             @ColumnName("catalog") String catalog,
@@ -46,7 +48,8 @@ public class QueryConfiguration
             @ColumnName("username") Optional<String> username,
             @ColumnName("password") Optional<String> password,
             @ColumnName("session_properties") Optional<Map<String, String>> sessionProperties,
-            @ColumnName("client_tags") Optional<List<String>> clientTags)
+            @ColumnName("client_tags") Optional<List<String>> clientTags,
+            @ColumnName("partitions") Optional<List<String>> partitions)
     {
         this.catalog = requireNonNull(catalog, "catalog is null");
         this.schema = requireNonNull(schema, "schema is null");
@@ -54,6 +57,7 @@ public class QueryConfiguration
         this.password = requireNonNull(password, "password is null");
         this.sessionProperties = ImmutableMap.copyOf(sessionProperties.orElse(ImmutableMap.of()));
         this.clientTags = ImmutableList.copyOf(clientTags.orElse(ImmutableList.of()));
+        this.partitions = ImmutableList.copyOf(partitions.orElse(ImmutableList.of()));
     }
 
     public QueryConfiguration applyOverrides(QueryConfigurationOverrides overrides)
@@ -75,7 +79,8 @@ public class QueryConfiguration
                 Optional.ofNullable(overrides.getUsernameOverride().orElse(username.orElse(null))),
                 Optional.ofNullable(overrides.getPasswordOverride().orElse(password.orElse(null))),
                 Optional.of(sessionProperties),
-                Optional.of(clientTags));
+                Optional.of(clientTags),
+                Optional.of(partitions));
     }
 
     public String getCatalog()
@@ -108,6 +113,11 @@ public class QueryConfiguration
         return clientTags;
     }
 
+    public List<String> getPartitions()
+    {
+        return partitions;
+    }
+
     @Override
     public boolean equals(Object obj)
     {
@@ -123,13 +133,14 @@ public class QueryConfiguration
                 Objects.equals(username, o.username) &&
                 Objects.equals(password, o.password) &&
                 Objects.equals(sessionProperties, o.sessionProperties) &&
-                Objects.equals(clientTags, o.clientTags);
+                Objects.equals(clientTags, o.clientTags) &&
+                Objects.equals(partitions, partitions);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(catalog, schema, username, password, sessionProperties, clientTags);
+        return Objects.hash(catalog, schema, username, password, sessionProperties, clientTags, partitions);
     }
 
     @Override
@@ -142,6 +153,7 @@ public class QueryConfiguration
                 .add("password", password)
                 .add("sessionProperties", sessionProperties)
                 .add("clientTags", clientTags)
+                .add("partitions", partitions)
                 .toString();
     }
 }

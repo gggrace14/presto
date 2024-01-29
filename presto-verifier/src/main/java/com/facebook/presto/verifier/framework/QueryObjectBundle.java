@@ -13,10 +13,12 @@
  */
 package com.facebook.presto.verifier.framework;
 
+import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.Statement;
 
 import java.util.List;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -24,6 +26,7 @@ public class QueryObjectBundle
         extends QueryBundle
 {
     private final QualifiedName objectName;
+    private final Optional<Expression> partitionsPredicate;
     private final boolean reuseTable;
 
     public QueryObjectBundle(
@@ -31,11 +34,13 @@ public class QueryObjectBundle
             List<Statement> setupQueries,
             Statement query,
             List<Statement> teardownQueries,
+            Optional<Expression> partitionsPredicate,
             ClusterType cluster,
             boolean reuseTable)
     {
         super(setupQueries, query, teardownQueries, cluster);
         this.objectName = requireNonNull(objectName, "objectName is null");
+        this.partitionsPredicate = partitionsPredicate;
         this.reuseTable = reuseTable;
     }
 
@@ -47,5 +52,10 @@ public class QueryObjectBundle
     public boolean isReuseTable()
     {
         return reuseTable;
+    }
+
+    public Optional<Expression> getPartitionsPredicate()
+    {
+        return partitionsPredicate;
     }
 }
