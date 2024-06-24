@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.verifier.framework;
 
+import com.facebook.presto.common.type.AbstractVarcharType;
 import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.MapType;
 import com.facebook.presto.common.type.RowType;
@@ -34,6 +35,7 @@ import static com.facebook.presto.verifier.framework.Column.Category.FLOATING_PO
 import static com.facebook.presto.verifier.framework.Column.Category.MAP;
 import static com.facebook.presto.verifier.framework.Column.Category.ROW;
 import static com.facebook.presto.verifier.framework.Column.Category.SIMPLE;
+import static com.facebook.presto.verifier.framework.Column.Category.VARCHAR;
 import static com.facebook.presto.verifier.framework.VerifierUtil.delimitedIdentifier;
 import static java.util.Objects.requireNonNull;
 
@@ -43,6 +45,7 @@ public class Column
     {
         SIMPLE,
         FLOATING_POINT,
+        VARCHAR,
         ARRAY,
         ROW,
         MAP,
@@ -96,6 +99,9 @@ public class Column
         Category category;
         if (FLOATING_POINT_TYPES.contains(type)) {
             category = FLOATING_POINT;
+        }
+        else if (type instanceof AbstractVarcharType) {
+            category = VARCHAR;
         }
         else if (type instanceof ArrayType) {
             category = ARRAY;

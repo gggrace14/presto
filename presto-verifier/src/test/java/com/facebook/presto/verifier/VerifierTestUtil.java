@@ -30,6 +30,7 @@ import com.facebook.presto.verifier.checksum.FloatingPointColumnValidator;
 import com.facebook.presto.verifier.checksum.MapColumnValidator;
 import com.facebook.presto.verifier.checksum.RowColumnValidator;
 import com.facebook.presto.verifier.checksum.SimpleColumnValidator;
+import com.facebook.presto.verifier.checksum.VarcharColumnValidator;
 import com.facebook.presto.verifier.framework.Column;
 import com.facebook.presto.verifier.framework.QueryObjectBundle;
 import com.facebook.presto.verifier.framework.VerifierConfig;
@@ -139,12 +140,14 @@ public class VerifierTestUtil
     public static ChecksumValidator createChecksumValidator(VerifierConfig verifierConfig)
     {
         Map<Column.Category, Provider<ColumnValidator>> lazyValidators = new HashMap<>();
-        Map<Column.Category, Provider<ColumnValidator>> validators = ImmutableMap.of(
-                Column.Category.SIMPLE, SimpleColumnValidator::new,
-                Column.Category.FLOATING_POINT, () -> new FloatingPointColumnValidator(verifierConfig),
-                Column.Category.ARRAY, () -> new ArrayColumnValidator(verifierConfig, new FloatingPointColumnValidator(verifierConfig)),
-                Column.Category.ROW, () -> new RowColumnValidator(lazyValidators),
-                Column.Category.MAP, MapColumnValidator::new);
+        ImmutableMap.Builder<Column.Category, Provider<ColumnValidator>> builder = ImmutableMap.builder();
+        builder.put(Column.Category.SIMPLE, SimpleColumnValidator::new);
+        builder.put(Column.Category.VARCHAR, () -> new VarcharColumnValidator(verifierConfig, new SimpleColumnValidator(), new FloatingPointColumnValidator(verifierConfig)));
+        builder.put(Column.Category.FLOATING_POINT, () -> new FloatingPointColumnValidator(verifierConfig));
+        builder.put(Column.Category.ARRAY, () -> new ArrayColumnValidator(verifierConfig, new FloatingPointColumnValidator(verifierConfig)));
+        builder.put(Column.Category.ROW, () -> new RowColumnValidator(lazyValidators));
+        builder.put(Column.Category.MAP, MapColumnValidator::new);
+        Map<Column.Category, Provider<ColumnValidator>> validators = builder.build();
         lazyValidators.putAll(validators);
         return new ChecksumValidator(validators);
     }

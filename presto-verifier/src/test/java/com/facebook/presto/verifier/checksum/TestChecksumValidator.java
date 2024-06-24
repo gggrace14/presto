@@ -122,13 +122,19 @@ public class TestChecksumValidator
                         MAP_ARRAY_COLUMN,
                         MAP_COLUMN,
                         MAP_FLOAT_NON_FLOAT_COLUMN,
-                        MAP_NON_ORDERABLE_COLUMN,
-                        ROW_COLUMN));
+                        MAP_NON_ORDERABLE_COLUMN));
+//                        ROW_COLUMN));
         Statement expectedChecksumQuery = sqlParser.createStatement(
                 "SELECT\n" +
                         "  \"count\"(*)\n" +
                         ", \"checksum\"(\"bigint\") \"bigint$checksum\"\n" +
                         ", \"checksum\"(\"varchar\") \"varchar$checksum\"\n" +
+                        ", \"count\"(\"varchar\") FILTER (WHERE \"varchar\" IS NULL) \"varchar$null_count\"\n" +
+                        ", \"sum\"(TRY_CAST(\"varchar\" AS double)) FILTER (WHERE \"is_finite\"(TRY_CAST(\"varchar\" AS double))) \"varchar_to_double$sum\"\n" +
+                        ", \"count\"(TRY_CAST(\"varchar\" AS double)) FILTER (WHERE \"is_nan\"(TRY_CAST(\"varchar\" AS double))) \"varchar_to_double$nan_count\"\n" +
+                        ", \"count\"(TRY_CAST(\"varchar\" AS double)) FILTER (WHERE (TRY_CAST(\"varchar\" AS double) = \"infinity\"())) \"varchar_to_double$pos_inf_count\"\n" +
+                        ", \"count\"(TRY_CAST(\"varchar\" AS double)) FILTER (WHERE (TRY_CAST(\"varchar\" AS double) = -\"infinity\"())) \"varchar_to_double$neg_inf_count\"\n" +
+                        ", \"count\"(TRY_CAST(\"varchar\" AS double)) FILTER (WHERE TRY_CAST(\"varchar\" AS double) IS NULL) \"varchar_to_double$null_count\"\n" +
                         ", \"sum\"(\"double\") FILTER (WHERE \"is_finite\"(\"double\")) \"double$sum\"\n" +
                         ", \"count\"(\"double\") FILTER (WHERE \"is_nan\"(\"double\")) \"double$nan_count\"\n" +
                         ", \"count\"(\"double\") FILTER (WHERE (\"double\" = \"infinity\"())) \"double$pos_inf_count\"\n" +

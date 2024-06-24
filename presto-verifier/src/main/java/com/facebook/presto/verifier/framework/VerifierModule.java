@@ -38,6 +38,7 @@ import com.facebook.presto.verifier.checksum.FloatingPointColumnValidator;
 import com.facebook.presto.verifier.checksum.MapColumnValidator;
 import com.facebook.presto.verifier.checksum.RowColumnValidator;
 import com.facebook.presto.verifier.checksum.SimpleColumnValidator;
+import com.facebook.presto.verifier.checksum.VarcharColumnValidator;
 import com.facebook.presto.verifier.framework.Column.Category;
 import com.facebook.presto.verifier.prestoaction.ClientInfoFactory;
 import com.facebook.presto.verifier.resolver.FailureResolverModule;
@@ -67,6 +68,7 @@ import static com.facebook.presto.verifier.framework.Column.Category.FLOATING_PO
 import static com.facebook.presto.verifier.framework.Column.Category.MAP;
 import static com.facebook.presto.verifier.framework.Column.Category.ROW;
 import static com.facebook.presto.verifier.framework.Column.Category.SIMPLE;
+import static com.facebook.presto.verifier.framework.Column.Category.VARCHAR;
 import static com.google.inject.Scopes.SINGLETON;
 import static com.google.inject.multibindings.Multibinder.newSetBinder;
 import static java.util.Objects.requireNonNull;
@@ -136,9 +138,11 @@ public class VerifierModule
         binder.bind(VerificationFactory.class).in(SINGLETON);
         binder.bind(ChecksumValidator.class).in(SINGLETON);
         binder.bind(FloatingPointColumnValidator.class).in(SINGLETON);
+        binder.bind(SimpleColumnValidator.class).in(SINGLETON);
         MapBinder<Category, ColumnValidator> columnValidatorBinder = MapBinder.newMapBinder(binder, Category.class, ColumnValidator.class);
         columnValidatorBinder.addBinding(SIMPLE).to(SimpleColumnValidator.class).in(SINGLETON);
         columnValidatorBinder.addBinding(FLOATING_POINT).to(FloatingPointColumnValidator.class).in(SINGLETON);
+        columnValidatorBinder.addBinding(VARCHAR).to(VarcharColumnValidator.class).in(SINGLETON);
         columnValidatorBinder.addBinding(ARRAY).to(ArrayColumnValidator.class).in(SINGLETON);
         columnValidatorBinder.addBinding(ROW).to(RowColumnValidator.class).in(SINGLETON);
         columnValidatorBinder.addBinding(MAP).to(MapColumnValidator.class).in(SINGLETON);
