@@ -315,9 +315,10 @@ public abstract class AbstractVerification<B extends QueryBundle, R extends Matc
             partialResult = Optional.of(concludeVerificationPartial(control, test, controlQueryContext, testQueryContext, matchResult, determinismAnalysisDetails, Optional.of(t)));
         }
         finally {
-            if (!smartTeardown
-                    || !ImmutableList.of(QueryState.SUCCEEDED, QueryState.REUSE).contains(testQueryContext.getState())
-                    || (partialResult.isPresent() && partialResult.get().getStatus().equals(SUCCEEDED))) {
+            if (false) {
+//            if (!smartTeardown
+//                    || !ImmutableList.of(QueryState.SUCCEEDED, QueryState.REUSE).contains(testQueryContext.getState())
+//                    || (partialResult.isPresent() && partialResult.get().getStatus().equals(SUCCEEDED))) {
                 QueryAction controlTeardownAction = teardownOnMainClusters ? queryActions.getControlAction() : queryActions.getHelperAction();
                 QueryAction testTeardownAction = teardownOnMainClusters ? queryActions.getTestAction() : queryActions.getHelperAction();
                 teardownSafely(controlTeardownAction, control, controlQueryContext::addTeardownQuery);

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.verifier.checksum;
 
+import com.facebook.presto.common.type.AbstractVarcharType;
 import com.facebook.presto.common.type.ArrayType;
 import com.facebook.presto.common.type.DoubleType;
 import com.facebook.presto.common.type.MapType;
@@ -23,7 +24,10 @@ import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.LongLiteral;
 import com.facebook.presto.sql.tree.SingleColumn;
 import com.facebook.presto.verifier.framework.Column;
+import com.facebook.presto.verifier.framework.VerifierConfig;
 import com.google.common.collect.ImmutableList;
+
+import javax.inject.Inject;
 
 import java.util.List;
 import java.util.Objects;
@@ -31,25 +35,43 @@ import java.util.Optional;
 
 import static com.facebook.presto.sql.QueryUtil.functionCall;
 import static com.facebook.presto.verifier.checksum.ArrayColumnValidator.generateArrayChecksum;
+import static com.facebook.presto.verifier.checksum.ArrayColumnValidator.getAsDoubleArrayColumn;
 import static com.facebook.presto.verifier.framework.VerifierUtil.delimitedIdentifier;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 public class MapColumnValidator
         implements ColumnValidator
 {
+    private final FloatingPointColumnValidator floatingPointValidator;
+    private final boolean validateStringAsDouble;
+
+    @Inject
+    public MapColumnValidator(VerifierConfig config, FloatingPointColumnValidator floatingPointValidator)
+    {
+        this.floatingPointValidator = requireNonNull(floatingPointValidator, "floatingPointValidator is null");
+        this.validateStringAsDouble = config.isValidateStringAsDouble();
+    }
+
     @Override
     public List<SingleColumn> generateChecksumColumns(Column column)
     {
         checkArgument(column.getType() instanceof MapType, "Expect MapType, found %s", column.getType().getDisplayName());
         Type keyType = ((MapType) column.getType()).getKeyType();
         Type valueType = ((MapType) column.getType()).getValueType();
+        ImmutableList.Builder<SingleColumn> builder = ImmutableList.builder();
 
         Expression checksum = functionCall("checksum", column.getExpression());
         Expression keysChecksum = generateArrayChecksum(functionCall("map_keys", column.getExpression()), new ArrayType(keyType));
+        // checksum(cardinality(map_column))
         Expression mapCardinalityChecksum = functionCall("checksum", functionCall("cardinality", column.getExpression()));
+        // coalesce(sum(cardinality(map_column)), 0)
         Expression mapCardinalitySum = new CoalesceExpression(
                 functionCall("sum", functionCall("cardinality", column.getExpression())),
                 new LongLiteral("0"));
+
+        builder.add(new SingleColumn(checksum, Optional.of(delimitedIdentifier(getChecksumColumnAlias(column)))));
+        builder.add(new SingleColumn(keysChecksum, Optional.of(delimitedIdentifier(getKeysChecksumColumnAlias(column)))));
 
         // We need values checksum in one case only: when key is a floating point type and value is not.
         // In such case, when both column checksum and the key checksum do not match, we cannot tell if the values match or not.
@@ -57,43 +79,116 @@ public class MapColumnValidator
         // In order to resolve column mismatch in such a situation, generate an extra checksum for the values.
         if (isFloatingPointType(keyType) && !isFloatingPointType(valueType)) {
             Expression valuesChecksum = generateArrayChecksum(functionCall("map_values", column.getExpression()), new ArrayType(valueType));
-            return ImmutableList.of(
-                    new SingleColumn(checksum, Optional.of(delimitedIdentifier(getChecksumColumnAlias(column)))),
-                    new SingleColumn(keysChecksum, Optional.of(delimitedIdentifier(getKeysChecksumColumnAlias(column)))),
-                    new SingleColumn(valuesChecksum, Optional.of(delimitedIdentifier(getValuesChecksumColumnAlias(column)))),
-                    new SingleColumn(mapCardinalityChecksum, Optional.of(delimitedIdentifier(getCardinalityChecksumColumnAlias(column)))),
-                    new SingleColumn(mapCardinalitySum, Optional.of(delimitedIdentifier(getCardinalitySumColumnAlias(column)))));
+            builder.add(new SingleColumn(valuesChecksum, Optional.of(delimitedIdentifier(getValuesChecksumColumnAlias(column)))));
         }
 
-        return ImmutableList.of(
-                new SingleColumn(checksum, Optional.of(delimitedIdentifier(getChecksumColumnAlias(column)))),
-                new SingleColumn(keysChecksum, Optional.of(delimitedIdentifier(getKeysChecksumColumnAlias(column)))),
-                new SingleColumn(mapCardinalityChecksum, Optional.of(delimitedIdentifier(getCardinalityChecksumColumnAlias(column)))),
-                new SingleColumn(mapCardinalitySum, Optional.of(delimitedIdentifier(getCardinalitySumColumnAlias(column)))));
+        if (shouldValidateStringAsDouble(keyType)) {
+            Column keysColumn = getKeysColumn(column);
+            builder.addAll(ArrayColumnValidator.generateStringArrayChecksumColumns(keysColumn));
+        }
+        if (shouldValidateStringAsDouble(valueType)) {
+            Column valuesColumn = getValuesColumn(column);
+            builder.addAll(ArrayColumnValidator.generateStringArrayChecksumColumns(valuesColumn));
+        }
+
+        builder.add(new SingleColumn(mapCardinalityChecksum, Optional.of(delimitedIdentifier(getCardinalityChecksumColumnAlias(column)))));
+        builder.add(new SingleColumn(mapCardinalitySum, Optional.of(delimitedIdentifier(getCardinalitySumColumnAlias(column)))));
+
+        return builder.build();
     }
 
     @Override
     public List<ColumnMatchResult<MapColumnChecksum>> validate(Column column, ChecksumResult controlResult, ChecksumResult testResult)
     {
+        checkArgument(
+                controlResult.getRowCount() == testResult.getRowCount(),
+                "Test row count (%s) does not match control row count (%s)",
+                testResult.getRowCount(),
+                controlResult.getRowCount());
+
         MapColumnChecksum controlChecksum = toColumnChecksum(column, controlResult);
         MapColumnChecksum testChecksum = toColumnChecksum(column, testResult);
 
-        return ImmutableList.of(new ColumnMatchResult<>(Objects.equals(controlChecksum, testChecksum), column, controlChecksum, testChecksum));
+        if (!Objects.equals(controlChecksum.getCardinalityChecksum(), testChecksum.getCardinalityChecksum()) ||
+                !Objects.equals(controlChecksum.getCardinalitySum(), testChecksum.getCardinalitySum())) {
+            return ImmutableList.of(new ColumnMatchResult<>(false, column, Optional.of("cardinality mismatch"), controlChecksum, testChecksum));
+        }
+
+        if (Objects.equals(controlChecksum.getChecksum(), testChecksum.getChecksum()) &&
+                Objects.equals(controlChecksum.getKeysChecksum(), testChecksum.getKeysChecksum()) &&
+                        Objects.equals(controlChecksum.getValuesChecksum(), testChecksum.getValuesChecksum())) {
+            return ImmutableList.of(new ColumnMatchResult<>(true, column, controlChecksum, testChecksum));
+        }
+
+        Type keyType = ((MapType) column.getType()).getKeyType();
+        Type valueType = ((MapType) column.getType()).getValueType();
+        Column keysColumn = getKeysColumn(column);
+        Column valuesColumn = getValuesColumn(column);
+
+        boolean isKeyMatched = false;
+        if (shouldValidateStringAsDouble(keyType) && ColumnValidatorUtil.isDoubleAsStringColumn(keysColumn, controlResult, testResult)) {
+            ColumnMatchResult<FloatingPointColumnChecksum> result =
+                    floatingPointValidator.validate(getAsDoubleArrayColumn(keysColumn), controlChecksum.getKeysFloatingPointChecksum(), testChecksum.getKeysFloatingPointChecksum());
+            isKeyMatched = Objects.equals(controlChecksum.getKeysChecksum(), testChecksum.getKeysChecksum()) || result.isMatched();
+        }
+        boolean isValueMatched = false;
+        if (shouldValidateStringAsDouble(valueType) && ColumnValidatorUtil.isDoubleAsStringColumn(valuesColumn, controlResult, testResult)) {
+            ColumnMatchResult<FloatingPointColumnChecksum> result =
+                    floatingPointValidator.validate(getAsDoubleArrayColumn(keysColumn), controlChecksum.getValuesFloatingPointChecksum(), testChecksum.getValuesFloatingPointChecksum());
+            isValueMatched = Objects.equals(controlChecksum.getValuesChecksum(), testChecksum.getValuesChecksum()) || result.isMatched();
+        }
+        return ImmutableList.of(new ColumnMatchResult<>(isKeyMatched && isValueMatched, column, controlChecksum, testChecksum));
     }
 
-    private static MapColumnChecksum toColumnChecksum(Column column, ChecksumResult checksumResult)
+    private MapColumnChecksum toColumnChecksum(Column column, ChecksumResult checksumResult)
     {
+        checkArgument(column.getType() instanceof MapType, "Expect MapType, found %s", column.getType().getDisplayName());
+        Type keyType = ((MapType) column.getType()).getKeyType();
+        Type valueType = ((MapType) column.getType()).getValueType();
+
+        Optional<FloatingPointColumnChecksum> keysFloatingPointChecksum = Optional.empty();
+        if (shouldValidateStringAsDouble(keyType)) {
+            Column keysColumn = getAsDoubleArrayColumn(getKeysColumn(column));
+            keysFloatingPointChecksum = Optional.of(FloatingPointColumnValidator.toColumnChecksum(keysColumn, checksumResult, checksumResult.getRowCount()));
+        }
+        Optional<FloatingPointColumnChecksum> valuesFloatingPointChecksum = Optional.empty();
+        if (shouldValidateStringAsDouble(valueType)) {
+            Column valuesColumn = getAsDoubleArrayColumn(getValuesColumn(column));
+            valuesFloatingPointChecksum = Optional.of(FloatingPointColumnValidator.toColumnChecksum(valuesColumn, checksumResult, checksumResult.getRowCount()));
+        }
+
         return new MapColumnChecksum(
                 checksumResult.getChecksum(getChecksumColumnAlias(column)),
                 checksumResult.getChecksum(getKeysChecksumColumnAlias(column)),
                 checksumResult.getChecksums().containsKey(getValuesChecksumColumnAlias(column)) ? checksumResult.getChecksum(getValuesChecksumColumnAlias(column)) : null,
+                keysFloatingPointChecksum,
+                valuesFloatingPointChecksum,
                 checksumResult.getChecksum(getCardinalityChecksumColumnAlias(column)),
                 (long) checksumResult.getChecksum(getCardinalitySumColumnAlias(column)));
+    }
+
+    private boolean shouldValidateStringAsDouble(Type columnType)
+    {
+        return validateStringAsDouble && columnType instanceof AbstractVarcharType;
     }
 
     private static boolean isFloatingPointType(Type type)
     {
         return type instanceof DoubleType || type instanceof RealType;
+    }
+
+    private static Column getKeysColumn(Column column)
+    {
+        checkArgument(column.getType() instanceof MapType, "Expect MapType, found %s", column.getType().getDisplayName());
+        Type keyType = ((MapType) column.getType()).getKeyType();
+        return Column.create(column.getName() + "_key_array", functionCall("map_keys", column.getExpression()), new ArrayType(keyType));
+    }
+
+    private static Column getValuesColumn(Column column)
+    {
+        checkArgument(column.getType() instanceof MapType, "Expect MapType, found %s", column.getType().getDisplayName());
+        Type valueType = ((MapType) column.getType()).getValueType();
+        return Column.create(column.getName() + "_value_array", functionCall("map_values", column.getExpression()), new ArrayType(valueType));
     }
 
     private static String getChecksumColumnAlias(Column column)

@@ -146,7 +146,7 @@ public class VerifierTestUtil
         builder.put(Column.Category.FLOATING_POINT, () -> new FloatingPointColumnValidator(verifierConfig));
         builder.put(Column.Category.ARRAY, () -> new ArrayColumnValidator(verifierConfig, new FloatingPointColumnValidator(verifierConfig)));
         builder.put(Column.Category.ROW, () -> new RowColumnValidator(lazyValidators));
-        builder.put(Column.Category.MAP, MapColumnValidator::new);
+        builder.put(Column.Category.MAP, () -> new MapColumnValidator(verifierConfig, new FloatingPointColumnValidator(verifierConfig)));
         Map<Column.Category, Provider<ColumnValidator>> validators = builder.build();
         lazyValidators.putAll(validators);
         return new ChecksumValidator(validators);
